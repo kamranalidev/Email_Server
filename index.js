@@ -14,11 +14,17 @@ const PORT = process.env.PORT || 3001;
 const log = {
   info: (msg, data = null) => {
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ℹ️  ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+    console.log(
+      `[${timestamp}] ℹ️  ${msg}`,
+      data ? JSON.stringify(data, null, 2) : "",
+    );
   },
   success: (msg, data = null) => {
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ✅ ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+    console.log(
+      `[${timestamp}] ✅ ${msg}`,
+      data ? JSON.stringify(data, null, 2) : "",
+    );
   },
   error: (msg, error = null) => {
     const timestamp = new Date().toISOString();
@@ -27,15 +33,24 @@ const log = {
   },
   warn: (msg, data = null) => {
     const timestamp = new Date().toISOString();
-    console.warn(`[${timestamp}] ⚠️  ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+    console.warn(
+      `[${timestamp}] ⚠️  ${msg}`,
+      data ? JSON.stringify(data, null, 2) : "",
+    );
   },
   payment: (msg, data = null) => {
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] 💳 ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+    console.log(
+      `[${timestamp}] 💳 ${msg}`,
+      data ? JSON.stringify(data, null, 2) : "",
+    );
   },
   email: (msg, data = null) => {
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] 📧 ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+    console.log(
+      `[${timestamp}] 📧 ${msg}`,
+      data ? JSON.stringify(data, null, 2) : "",
+    );
   },
 };
 
@@ -47,11 +62,17 @@ log.info("Environment Check:", {
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: PORT,
   RESEND_API_KEY: process.env.RESEND_API_KEY ? "✓ Set" : "✗ Missing",
-  EMAIL_FROM: process.env.EMAIL_FROM || "onboarding@resend.dev",
+  EMAIL_FROM: process.env.EMAIL_FROM || "TravelGuru <noreply@travelguroo.com>",
+  ADMIN_NOTIFICATION_EMAIL:
+    process.env.ADMIN_NOTIFICATION_EMAIL || "admin@travelguroo.com",
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? "✓ Set" : "✗ Missing",
-  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ? "✓ Set" : "✗ Missing",
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET
+    ? "✓ Set"
+    : "✗ Missing",
   SUPABASE_URL: process.env.SUPABASE_URL ? "✓ Set" : "✗ Missing",
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set" : "✗ Missing",
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? "✓ Set"
+    : "✗ Missing",
   FRONTEND_URL: process.env.FRONTEND_URL || "https://travelguroo.com",
 });
 
@@ -74,7 +95,7 @@ const supabase = createClient(
 );
 
 // Initialize Resend for email
-const resend = process.env.RESEND_API_KEY 
+const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
   : null;
 
@@ -84,8 +105,13 @@ if (resend) {
   log.warn("RESEND_API_KEY not set - email sending will not work");
 }
 
-// Default from email (use verified domain or Resend's test address)
-const EMAIL_FROM = process.env.EMAIL_FROM || "TravelGuru <onboarding@resend.dev>";
+// Default from email (use verified domain)
+const EMAIL_FROM =
+  process.env.EMAIL_FROM || "TravelGuru <noreply@travelguroo.com>";
+
+// Admin notification email
+const ADMIN_NOTIFICATION_EMAIL =
+  process.env.ADMIN_NOTIFICATION_EMAIL || "admin@travelguroo.com";
 
 // Helper: Format money
 const formatMoney = (amountMinor, currency = "aed") => {
@@ -112,7 +138,399 @@ const formatList = (value) => {
   return String(value);
 };
 
-// Helper: Generate booking confirmation email HTML
+// ==================== VOUCHER SYSTEM ====================
+
+// Generate a unique voucher code
+const generateVoucherCode = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Removed confusing chars like 0,O,1,I
+  let code = "TG-";
+  for (let i = 0; i < 8; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+};
+
+// Check if voucher is expired based on booking date
+const isVoucherExpired = (bookingDate) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const bDate = new Date(bookingDate);
+  bDate.setHours(0, 0, 0, 0);
+  return bDate < today;
+};
+
+// Generate customer voucher email HTML (enhanced premium design)
+const generateVoucherEmailHTML = (
+  booking,
+  service,
+  packageInfo,
+  userName,
+  voucherCode,
+) => {
+  const serviceName =
+    service?.service_name || service?.name || "Your Experience";
+  const location = service?.location || "";
+  const packageName = packageInfo?.name || "";
+  const amount = formatMoney(booking.amount, booking.currency);
+  const bookingTime = booking.departure_arrival_time || "";
+  const greeting = userName ? escapeHtml(userName) : "Valued Customer";
+  const bookingDate = booking.booking_date || "";
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your TravelGuru E-Voucher</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0a0a0a;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(180deg, #0a0a0a 0%, #1a1a1a 100%); padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 60px rgba(255,98,31,0.2);">
+          
+          <!-- Premium Header with Logo -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #FF621F 0%, #ff8533 50%, #FF621F 100%); padding: 40px 30px; text-align: center; position: relative;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="text-align: center;">
+                    <div style="display: inline-block; background: rgba(255,255,255,0.2); border-radius: 16px; padding: 12px 24px; margin-bottom: 16px;">
+                      <span style="color: #ffffff; font-size: 32px; font-weight: 800; letter-spacing: 1px;">TravelGuru</span>
+                    </div>
+                    <p style="color: rgba(255,255,255,0.95); margin: 0; font-size: 18px; font-weight: 500;">✨ Your Premium E-Voucher ✨</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Personalized Greeting -->
+          <tr>
+            <td style="padding: 35px 30px 25px; text-align: center; background: linear-gradient(180deg, #fff 0%, #fafafa 100%);">
+              <p style="color: #1a1a1a; margin: 0 0 8px; font-size: 22px; font-weight: 700;">Hello, ${greeting}! 👋</p>
+              <p style="color: #666; margin: 0; font-size: 15px; line-height: 1.6;">Your booking is <span style="color: #4CAF50; font-weight: 600;">confirmed</span>. Present this voucher on arrival for a seamless experience.</p>
+            </td>
+          </tr>
+          
+          <!-- ============ VOUCHER CODE - MAIN HIGHLIGHT ============ -->
+          <tr>
+            <td style="padding: 0 24px 30px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(145deg, #1a1a1a 0%, #2d2d2d 50%, #1a1a1a 100%); border-radius: 20px; overflow: hidden; border: 2px solid #FF621F;">
+                <tr>
+                  <td style="padding: 8px; text-align: center;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background: repeating-linear-gradient(90deg, transparent, transparent 10px, rgba(255,255,255,0.03) 10px, rgba(255,255,255,0.03) 20px);">
+                      <tr>
+                        <td style="padding: 30px 20px 15px; text-align: center;">
+                          <div style="display: inline-block; background: linear-gradient(135deg, #FF621F, #ff8533); padding: 6px 20px; border-radius: 20px; margin-bottom: 15px;">
+                            <span style="color: #fff; font-size: 11px; text-transform: uppercase; letter-spacing: 3px; font-weight: 700;">🎫 Your Voucher Code</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 0 20px 15px; text-align: center;">
+                          <div style="background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%); border: 3px dashed #FF621F; border-radius: 12px; padding: 25px 15px;">
+                            <p style="color: #ffffff; margin: 0; font-size: 42px; font-weight: 800; letter-spacing: 6px; font-family: 'Courier New', monospace; text-shadow: 0 0 20px rgba(255,98,31,0.5);">${voucherCode}</p>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 10px 20px 25px; text-align: center;">
+                          <p style="color: #aaa; margin: 0 0 8px; font-size: 12px;">📱 Show this code to our staff for instant verification</p>
+                          <p style="color: #FF621F; margin: 0; font-size: 11px; font-weight: 600;">Valid for one-time use only</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Booking Details Card -->
+          <tr>
+            <td style="padding: 0 24px 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%); border-radius: 16px; border: 1px solid #e8e8e8;">
+                <tr>
+                  <td style="padding: 24px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <!-- Section Title -->
+                      <tr>
+                        <td style="padding-bottom: 16px; border-bottom: 2px solid #FF621F;">
+                          <p style="color: #1a1a1a; margin: 0; font-size: 16px; font-weight: 700;">📋 Booking Details</p>
+                        </td>
+                      </tr>
+                      <!-- Service -->
+                      <tr>
+                        <td style="padding: 16px 0 12px;">
+                          <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Experience</p>
+                          <p style="color: #1a1a1a; margin: 0; font-size: 18px; font-weight: 700;">${escapeHtml(serviceName)}</p>
+                        </td>
+                      </tr>
+                      ${
+                        packageName
+                          ? `
+                      <!-- Package -->
+                      <tr>
+                        <td style="padding: 12px 0;">
+                          <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Package</p>
+                          <p style="color: #1a1a1a; margin: 0; font-size: 15px; font-weight: 600;">📦 ${escapeHtml(packageName)}</p>
+                        </td>
+                      </tr>
+                      `
+                          : ""
+                      }
+                      ${
+                        location
+                          ? `
+                      <!-- Location -->
+                      <tr>
+                        <td style="padding: 12px 0;">
+                          <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Location</p>
+                          <p style="color: #1a1a1a; margin: 0; font-size: 15px;">📍 ${escapeHtml(location)}</p>
+                        </td>
+                      </tr>
+                      `
+                          : ""
+                      }
+                      <!-- Date & Time -->
+                      <tr>
+                        <td style="padding: 12px 0;">
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td width="50%">
+                                <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Date</p>
+                                <p style="color: #1a1a1a; margin: 0; font-size: 15px; font-weight: 600;">📅 ${escapeHtml(bookingDate)}</p>
+                              </td>
+                              ${
+                                bookingTime
+                                  ? `
+                              <td width="50%">
+                                <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Time</p>
+                                <p style="color: #1a1a1a; margin: 0; font-size: 15px; font-weight: 600;">🕐 ${escapeHtml(bookingTime)}</p>
+                              </td>
+                              `
+                                  : ""
+                              }
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                      <!-- Divider -->
+                      <tr>
+                        <td style="padding: 16px 0;">
+                          <hr style="border: none; border-top: 2px dashed #e0e0e0; margin: 0;">
+                        </td>
+                      </tr>
+                      <!-- Amount Paid -->
+                      <tr>
+                        <td>
+                          <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #fff8f5 0%, #fff 100%); border-radius: 12px; padding: 16px;">
+                            <tr>
+                              <td style="padding: 16px;">
+                                <table width="100%">
+                                  <tr>
+                                    <td>
+                                      <p style="color: #666; margin: 0; font-size: 13px;">Total Amount Paid</p>
+                                      <p style="color: #4CAF50; margin: 4px 0 0; font-size: 12px; font-weight: 500;">✓ Payment Successful</p>
+                                    </td>
+                                    <td style="text-align: right;">
+                                      <p style="color: #FF621F; margin: 0; font-size: 28px; font-weight: 800;">${amount}</p>
+                                    </td>
+                                  </tr>
+                                </table>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Important Notice -->
+          <tr>
+            <td style="padding: 0 24px 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #fff8e1 0%, #fff3e0 100%); border-radius: 12px; border-left: 5px solid #FF621F;">
+                <tr>
+                  <td style="padding: 20px;">
+                    <p style="color: #e65100; margin: 0 0 12px; font-size: 14px; font-weight: 700;">⚠️ Important Information</p>
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• Please arrive <strong>15 minutes before</strong> your scheduled time</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• Bring a <strong>valid ID or passport</strong> for verification</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• This voucher is valid <strong>only for the date</strong> shown above</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• Voucher becomes <strong>invalid after use</strong> or expiration</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- QR-style Voucher Reminder -->
+          <tr>
+            <td style="padding: 0 24px 30px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: #f0f0f0; border-radius: 12px; text-align: center;">
+                <tr>
+                  <td style="padding: 20px;">
+                    <p style="color: #666; margin: 0 0 8px; font-size: 12px;">Your voucher code for quick reference:</p>
+                    <p style="color: #1a1a1a; margin: 0; font-size: 24px; font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: 3px; background: #fff; display: inline-block; padding: 10px 20px; border-radius: 8px; border: 2px solid #FF621F;">${voucherCode}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); padding: 30px; text-align: center;">
+              <p style="color: #888; margin: 0 0 12px; font-size: 13px;">Booking Reference: <span style="color: #FF621F; font-weight: 600;">#${booking.id}</span></p>
+              <p style="color: rgba(255,255,255,0.9); margin: 0 0 12px; font-size: 14px;">
+                Questions? Contact us at <a href="mailto:support@travelguroo.com" style="color: #FF621F; text-decoration: none; font-weight: 600;">support@travelguroo.com</a>
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="text-align: center; padding-top: 16px; border-top: 1px solid #333;">
+                    <p style="color: rgba(255,255,255,0.5); margin: 0; font-size: 11px;">
+                      © ${new Date().getFullYear()} TravelGuru. All rights reserved.<br>
+                      Your adventure partner in the UAE 🌴
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        
+        <!-- Bottom spacing -->
+        <table width="600" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+          <tr>
+            <td style="text-align: center;">
+              <p style="color: #666; margin: 0; font-size: 11px;">This email was sent by TravelGuru booking system.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+};
+
+// Generate admin notification email HTML
+const generateAdminNotificationHTML = (
+  booking,
+  service,
+  packageInfo,
+  userName,
+  userEmail,
+  voucherCode,
+) => {
+  const serviceName = service?.service_name || service?.name || "Service";
+  const location = service?.location || "N/A";
+  const packageName = packageInfo?.name || "N/A";
+  const amount = formatMoney(booking.amount, booking.currency);
+  const bookingTime = booking.departure_arrival_time || "Not specified";
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>New Booking Alert</title>
+</head>
+<body style="margin: 0; padding: 20px; font-family: Arial, sans-serif; background-color: #f5f5f5;">
+  <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+    
+    <!-- Header -->
+    <tr>
+      <td style="background-color: #4CAF50; padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 20px;">🔔 New Booking Alert</h1>
+      </td>
+    </tr>
+    
+    <!-- Content -->
+    <tr>
+      <td style="padding: 24px;">
+        <p style="color: #333; margin: 0 0 20px; font-size: 14px;">A new booking has been placed and requires your attention.</p>
+        
+        <!-- Booking Summary Table -->
+        <table width="100%" cellpadding="8" cellspacing="0" style="border: 1px solid #e0e0e0; border-radius: 8px; border-collapse: separate;">
+          <tr style="background-color: #f8f9fa;">
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Booking ID</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">#${booking.id}</td>
+          </tr>
+          <tr>
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Voucher Code</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #FF621F; font-weight: bold; font-family: monospace; font-size: 16px;">${voucherCode}</td>
+          </tr>
+          <tr style="background-color: #f8f9fa;">
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Customer</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">${escapeHtml(userName || "N/A")} (${escapeHtml(userEmail)})</td>
+          </tr>
+          <tr>
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Service</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">${escapeHtml(serviceName)}</td>
+          </tr>
+          <tr style="background-color: #f8f9fa;">
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Package</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">${escapeHtml(packageName)}</td>
+          </tr>
+          <tr>
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Location</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">📍 ${escapeHtml(location)}</td>
+          </tr>
+          <tr style="background-color: #f8f9fa;">
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Date</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">📅 ${escapeHtml(booking.booking_date)}</td>
+          </tr>
+          <tr>
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Time</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">🕐 ${escapeHtml(bookingTime)}</td>
+          </tr>
+          <tr style="background-color: #e8f5e9;">
+            <td style="font-weight: 600; color: #333;">Amount Paid</td>
+            <td style="color: #2e7d32; font-weight: bold; font-size: 18px;">${amount}</td>
+          </tr>
+        </table>
+        
+        <!-- Payment Info -->
+        <p style="color: #666; margin: 20px 0 0; font-size: 12px;">
+          Payment Status: <span style="color: #4CAF50; font-weight: 600;">✓ ${escapeHtml(booking.payment_status || "succeeded")}</span><br>
+          ${booking.payment_intent_id ? `Payment Ref: ${booking.payment_intent_id.slice(-8).toUpperCase()}` : ""}
+        </p>
+      </td>
+    </tr>
+    
+    <!-- Footer -->
+    <tr>
+      <td style="background-color: #f5f5f5; padding: 16px; text-align: center; border-radius: 0 0 8px 8px;">
+        <p style="color: #666; margin: 0; font-size: 11px;">
+          This is an automated notification from TravelGuru Booking System<br>
+          ${new Date().toLocaleString()}
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+};
+
+// Helper: Generate booking confirmation email HTML (keeping original for backward compatibility)
 const generateBookingEmailHTML = (booking, service, packageInfo, userName) => {
   const serviceName = service?.service_name || service?.name || "Your Booking";
   const location = service?.location || "";
@@ -439,10 +857,10 @@ const generateBookingEmailHTML = (booking, service, packageInfo, userName) => {
   `;
 };
 
-// Send booking confirmation email
+// Send booking confirmation email with voucher
 const sendBookingConfirmationEmail = async (bookingId) => {
   log.email(`Starting email send for booking #${bookingId}`);
-  
+
   try {
     // Step 1: Fetch booking with related data
     log.email(`Fetching booking data for #${bookingId}...`);
@@ -462,6 +880,8 @@ const sendBookingConfirmationEmail = async (bookingId) => {
         package_id,
         user_id,
         payment_intent_id,
+        voucher_code,
+        voucher_status,
         services(service_name, location, service_description, service_type),
         packages(name, duration, includes, excludes, price)
       `,
@@ -484,9 +904,41 @@ const sendBookingConfirmationEmail = async (bookingId) => {
       service_id: booking.service_id,
       payment_status: booking.payment_status,
       amount: booking.amount,
+      voucher_code: booking.voucher_code || "not yet generated",
     });
 
-    // Step 2: Get user email
+    // Step 2: Generate voucher code if not exists
+    let voucherCode = booking.voucher_code;
+    if (!voucherCode) {
+      // Generate unique voucher code
+      let attempts = 0;
+      while (!voucherCode && attempts < 5) {
+        const newCode = generateVoucherCode();
+        const { error: updateError } = await supabase
+          .from("bookings")
+          .update({ voucher_code: newCode, voucher_status: "active" })
+          .eq("id", bookingId)
+          .is("voucher_code", null); // Only update if still null (prevent race condition)
+
+        if (!updateError) {
+          voucherCode = newCode;
+          log.email(`Generated voucher code: ${voucherCode}`);
+        } else if (updateError.code === "23505") {
+          // Unique constraint violation, try again
+          attempts++;
+          log.warn(`Voucher code collision, retrying (${attempts}/5)`);
+        } else {
+          log.error(`Failed to save voucher code`, updateError);
+          throw updateError;
+        }
+      }
+
+      if (!voucherCode) {
+        throw new Error("Failed to generate unique voucher code");
+      }
+    }
+
+    // Step 3: Get user email
     log.email(`Fetching user data for user_id: ${booking.user_id}...`);
     const { data: userData, error: userError } =
       await supabase.auth.admin.getUserById(booking.user_id);
@@ -518,7 +970,9 @@ const sendBookingConfirmationEmail = async (bookingId) => {
 
     const serviceName = service?.service_name || "Your Booking";
 
-    log.email(`Service: ${serviceName}, Package: ${packageInfo?.name || "None"}`);
+    log.email(
+      `Service: ${serviceName}, Package: ${packageInfo?.name || "None"}`,
+    );
 
     // Check if Resend is configured
     if (!resend) {
@@ -526,87 +980,87 @@ const sendBookingConfirmationEmail = async (bookingId) => {
       throw new Error("Email service not configured. Set RESEND_API_KEY.");
     }
 
-    // Step 3: Generate email HTML
-    log.email("Generating email HTML...");
-    const html = generateBookingEmailHTML(
+    // Step 4: Generate and send VOUCHER email to customer
+    log.email("Generating voucher email HTML...");
+    const customerHtml = generateVoucherEmailHTML(
       booking,
       service,
       packageInfo,
       userName,
+      voucherCode,
     );
 
-    // Step 4: Send email to customer using Resend
-    log.email(`Sending confirmation email to ${userEmail}...`);
-    
+    log.email(`Sending voucher email to ${userEmail}...`);
+
     const { data: emailData, error: emailError } = await resend.emails.send({
       from: EMAIL_FROM,
       to: userEmail,
-      subject: `✅ Booking Confirmed: ${serviceName} - #${booking.id}`,
-      html: html,
+      subject: `🎫 Your Voucher: ${serviceName} - ${voucherCode}`,
+      html: customerHtml,
     });
 
     if (emailError) {
       log.error(`Resend API error`, emailError);
+
+      // Check if it's a domain verification issue (testing mode)
+      const isTestingRestriction =
+        emailError.message?.includes("testing emails") ||
+        emailError.message?.includes("verify a domain");
+
+      if (isTestingRestriction) {
+        log.warn(
+          `⚠️ RESEND TESTING MODE: Can only send to verified email. Voucher code generated: ${voucherCode}`,
+        );
+        log.warn(`To fix: Verify your domain at https://resend.com/domains`);
+        // Still return success with voucher code - email just didn't send
+        return {
+          success: true,
+          voucherCode,
+          emailSent: false,
+          warning:
+            "Email not sent - Resend domain not verified. Voucher code was still generated.",
+          hint: "Verify your domain at resend.com/domains to send emails to customers.",
+        };
+      }
+
       throw new Error(emailError.message || "Failed to send email via Resend");
     }
 
-    log.success(`Confirmation email SENT to ${userEmail} for booking #${bookingId}`);
+    log.success(`Voucher email SENT to ${userEmail} for booking #${bookingId}`);
     log.email(`Resend Email ID: ${emailData?.id}`);
 
-    // Step 5: Notify admin (optional)
-    const adminEmail = process.env.ADMIN_EMAIL;
+    // Step 5: Send admin notification
+    const adminEmail = ADMIN_NOTIFICATION_EMAIL;
     if (adminEmail) {
       log.email(`Sending admin notification to ${adminEmail}...`);
-      const adminHtml = `
-        <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1a1a1a;">
-          <h2 style="margin: 0 0 12px;">New booking placed</h2>
-          <p style="margin: 0 0 8px;">A new booking has been created with the following details:</p>
-          <ul style="margin: 0; padding-left: 18px;">
-            <li><strong>Booking ID:</strong> #${booking.id}</li>
-            <li><strong>Customer:</strong> ${escapeHtml(
-              userName || userEmail,
-            )} (${escapeHtml(userEmail)})</li>
-            <li><strong>Service:</strong> ${escapeHtml(serviceName)}</li>
-            <li><strong>Date:</strong> ${escapeHtml(booking.booking_date)}</li>
-            ${
-              booking.departure_arrival_time
-                ? `<li><strong>Time:</strong> ${escapeHtml(
-                    booking.departure_arrival_time,
-                  )}</li>`
-                : ""
-            }
-            ${
-              packageInfo?.name
-                ? `<li><strong>Package:</strong> ${escapeHtml(
-                    packageInfo.name,
-                  )}</li>`
-                : ""
-            }
-            <li><strong>Amount:</strong> ${escapeHtml(
-              formatMoney(booking.amount, booking.currency),
-            )}</li>
-            <li><strong>Payment Status:</strong> ${escapeHtml(
-              booking.payment_status,
-            )}</li>
-          </ul>
-        </div>
-      `;
+      const adminHtml = generateAdminNotificationHTML(
+        booking,
+        service,
+        packageInfo,
+        userName,
+        userEmail,
+        voucherCode,
+      );
 
       const { error: adminEmailError } = await resend.emails.send({
         from: EMAIL_FROM,
         to: adminEmail,
-        subject: `🧾 New Booking Notification - #${booking.id}`,
+        subject: `🔔 New Booking: ${serviceName} - #${booking.id} [${voucherCode}]`,
         html: adminHtml,
       });
-      
+
       if (adminEmailError) {
         log.warn(`Failed to send admin notification`, adminEmailError);
       } else {
-        log.success(`Admin notification SENT for booking #${bookingId}`);
+        log.success(
+          `Admin notification SENT to ${adminEmail} for booking #${bookingId}`,
+        );
       }
+    } else {
+      log.warn(`No admin email configured - skipping admin notification`);
     }
 
-    return { success: true, emailId: emailData?.id };
+    return { success: true, emailId: emailData?.id, voucherCode };
   } catch (error) {
     log.error(`FAILED to send email for booking #${bookingId}`, error);
     return { success: false, error: error.message };
@@ -625,6 +1079,39 @@ app.get("/api/diagnostics", async (req, res) => {
   log.info("=".repeat(50));
   log.info("Diagnostics endpoint called");
 
+  // Get voucher statistics
+  let voucherStats = null;
+  try {
+    const { data: activeCount } = await supabase
+      .from("bookings")
+      .select("id", { count: "exact", head: true })
+      .eq("voucher_status", "active");
+
+    const { data: usedCount } = await supabase
+      .from("bookings")
+      .select("id", { count: "exact", head: true })
+      .eq("voucher_status", "used");
+
+    const { data: expiredCount } = await supabase
+      .from("bookings")
+      .select("id", { count: "exact", head: true })
+      .eq("voucher_status", "expired");
+
+    const { data: totalWithVoucher } = await supabase
+      .from("bookings")
+      .select("id", { count: "exact", head: true })
+      .not("voucher_code", "is", null);
+
+    voucherStats = {
+      active: activeCount?.length || 0,
+      used: usedCount?.length || 0,
+      expired: expiredCount?.length || 0,
+      total: totalWithVoucher?.length || 0,
+    };
+  } catch (e) {
+    voucherStats = { error: "Could not fetch stats" };
+  }
+
   const diagnostics = {
     timestamp: new Date().toISOString(),
     email: {
@@ -635,16 +1122,24 @@ app.get("/api/diagnostics", async (req, res) => {
     },
     stripe: {
       secretKey: process.env.STRIPE_SECRET_KEY ? "configured" : "MISSING",
-      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ? "configured" : "MISSING",
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET
+        ? "configured"
+        : "MISSING",
     },
     supabase: {
       url: process.env.SUPABASE_URL ? "configured" : "MISSING",
-      serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ? "configured" : "MISSING",
+      serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? "configured"
+        : "MISSING",
     },
+    vouchers: voucherStats,
     frontend: {
       url: process.env.FRONTEND_URL || "https://travelguroo.com",
     },
-    adminEmail: process.env.ADMIN_EMAIL || "not set (admin notifications disabled)",
+    adminNotification: {
+      email: ADMIN_NOTIFICATION_EMAIL,
+      status: ADMIN_NOTIFICATION_EMAIL ? "configured" : "not set",
+    },
   };
 
   log.info("Diagnostics result:", diagnostics);
@@ -662,12 +1157,16 @@ app.post("/api/test-email", async (req, res) => {
 
   if (!to) {
     log.error("No email address provided for test");
-    return res.status(400).json({ error: "Please provide 'to' email address in request body." });
+    return res
+      .status(400)
+      .json({ error: "Please provide 'to' email address in request body." });
   }
 
   if (!resend) {
     log.error("Resend is not configured");
-    return res.status(500).json({ error: "Email service not configured. Set RESEND_API_KEY." });
+    return res
+      .status(500)
+      .json({ error: "Email service not configured. Set RESEND_API_KEY." });
   }
 
   try {
@@ -715,8 +1214,12 @@ app.post("/api/test-email", async (req, res) => {
 // Helper to provide user-friendly hints for common Resend errors
 const getResendErrorHint = (error) => {
   const msg = error.message?.toLowerCase() || "";
-  
-  if (msg.includes("api key") || msg.includes("unauthorized") || msg.includes("401")) {
+
+  if (
+    msg.includes("api key") ||
+    msg.includes("unauthorized") ||
+    msg.includes("401")
+  ) {
     return "Invalid API key. Check RESEND_API_KEY is correct.";
   }
   if (msg.includes("domain") || msg.includes("not verified")) {
@@ -748,7 +1251,10 @@ app.post("/api/send-booking-confirmation", async (req, res) => {
       log.success(`Manual email request completed for booking #${booking_id}`);
       res.json({ success: true, messageId: result.messageId });
     } else {
-      log.error(`Manual email request failed for booking #${booking_id}`, result.error);
+      log.error(
+        `Manual email request failed for booking #${booking_id}`,
+        result.error,
+      );
       res.status(500).json({ success: false, error: result.error });
     }
   } catch (error) {
@@ -757,6 +1263,456 @@ app.post("/api/send-booking-confirmation", async (req, res) => {
   }
 
   log.email("=".repeat(50));
+});
+
+// ==================== VOUCHER VERIFICATION API ====================
+
+// Verify/lookup voucher (GET - for checking voucher status)
+app.get("/api/voucher/:code", async (req, res) => {
+  const { code } = req.params;
+  log.info(`Voucher lookup request: ${code}`);
+
+  try {
+    const { data: booking, error } = await supabase
+      .from("bookings")
+      .select(
+        `
+        id,
+        booking_date,
+        departure_arrival_time,
+        voucher_code,
+        voucher_status,
+        voucher_verified_at,
+        amount,
+        currency,
+        payment_status,
+        services(service_name, location),
+        packages(name)
+      `,
+      )
+      .eq("voucher_code", code.toUpperCase())
+      .maybeSingle();
+
+    if (error) {
+      log.error("Voucher lookup error", error);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    if (!booking) {
+      log.warn(`Voucher not found: ${code}`);
+      return res.status(404).json({
+        valid: false,
+        error: "Voucher not found",
+        code: code.toUpperCase(),
+      });
+    }
+
+    // Check if expired based on booking date
+    const isExpired = isVoucherExpired(booking.booking_date);
+    let status = booking.voucher_status;
+
+    // Auto-update status if expired
+    if (isExpired && status === "active") {
+      await supabase
+        .from("bookings")
+        .update({ voucher_status: "expired" })
+        .eq("id", booking.id);
+      status = "expired";
+    }
+
+    const service = Array.isArray(booking.services)
+      ? booking.services[0]
+      : booking.services;
+    const packageInfo = Array.isArray(booking.packages)
+      ? booking.packages[0]
+      : booking.packages;
+
+    const response = {
+      valid: status === "active",
+      code: booking.voucher_code,
+      status: status,
+      booking: {
+        id: booking.id,
+        date: booking.booking_date,
+        time: booking.departure_arrival_time,
+        service: service?.service_name || "N/A",
+        location: service?.location || "N/A",
+        package: packageInfo?.name || null,
+        amount: formatMoney(booking.amount, booking.currency),
+        paymentStatus: booking.payment_status,
+      },
+      verifiedAt: booking.voucher_verified_at,
+    };
+
+    log.info(`Voucher lookup result:`, { code, status, valid: response.valid });
+    res.json(response);
+  } catch (error) {
+    log.error("Voucher lookup failed", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Verify/redeem voucher (POST - for marking as used)
+app.post("/api/voucher/verify", async (req, res) => {
+  log.info("=".repeat(50));
+  log.info("Voucher verification request");
+
+  const { code, admin_id } = req.body;
+
+  if (!code) {
+    return res.status(400).json({ error: "Voucher code is required" });
+  }
+
+  try {
+    // First, fetch the booking
+    const { data: booking, error: fetchError } = await supabase
+      .from("bookings")
+      .select(
+        `
+        id,
+        booking_date,
+        departure_arrival_time,
+        voucher_code,
+        voucher_status,
+        voucher_verified_at,
+        amount,
+        currency,
+        user_id,
+        services(service_name, location),
+        packages(name)
+      `,
+      )
+      .eq("voucher_code", code.toUpperCase())
+      .maybeSingle();
+
+    if (fetchError) {
+      log.error("Voucher fetch error", fetchError);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    if (!booking) {
+      log.warn(`Voucher not found for verification: ${code}`);
+      return res.status(404).json({
+        success: false,
+        error: "Voucher not found",
+        code: code.toUpperCase(),
+      });
+    }
+
+    // Check current status
+    if (booking.voucher_status === "used") {
+      log.warn(`Voucher already used: ${code}`);
+      return res.status(400).json({
+        success: false,
+        error: "Voucher has already been used",
+        verifiedAt: booking.voucher_verified_at,
+        code: booking.voucher_code,
+      });
+    }
+
+    if (booking.voucher_status === "cancelled") {
+      log.warn(`Voucher cancelled: ${code}`);
+      return res.status(400).json({
+        success: false,
+        error: "Voucher has been cancelled",
+        code: booking.voucher_code,
+      });
+    }
+
+    // Check if expired
+    if (isVoucherExpired(booking.booking_date)) {
+      // Update status to expired
+      await supabase
+        .from("bookings")
+        .update({ voucher_status: "expired" })
+        .eq("id", booking.id);
+
+      log.warn(`Voucher expired: ${code}`);
+      return res.status(400).json({
+        success: false,
+        error: "Voucher has expired (booking date has passed)",
+        bookingDate: booking.booking_date,
+        code: booking.voucher_code,
+      });
+    }
+
+    // Mark voucher as used
+    const { error: updateError } = await supabase
+      .from("bookings")
+      .update({
+        voucher_status: "used",
+        voucher_verified_at: new Date().toISOString(),
+        voucher_verified_by: admin_id || null,
+      })
+      .eq("id", booking.id);
+
+    if (updateError) {
+      log.error("Failed to update voucher status", updateError);
+      return res.status(500).json({ error: "Failed to verify voucher" });
+    }
+
+    const service = Array.isArray(booking.services)
+      ? booking.services[0]
+      : booking.services;
+    const packageInfo = Array.isArray(booking.packages)
+      ? booking.packages[0]
+      : booking.packages;
+
+    log.success(`Voucher VERIFIED: ${code} for booking #${booking.id}`);
+
+    res.json({
+      success: true,
+      message: "Voucher verified successfully!",
+      code: booking.voucher_code,
+      booking: {
+        id: booking.id,
+        date: booking.booking_date,
+        time: booking.departure_arrival_time,
+        service: service?.service_name || "N/A",
+        location: service?.location || "N/A",
+        package: packageInfo?.name || null,
+        amount: formatMoney(booking.amount, booking.currency),
+      },
+      verifiedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    log.error("Voucher verification failed", error);
+    res.status(500).json({ error: error.message });
+  }
+
+  log.info("=".repeat(50));
+});
+
+// Get all vouchers (for admin dashboard)
+app.get("/api/vouchers", async (req, res) => {
+  log.info("Fetching all vouchers for admin");
+
+  const { status, date, limit = 50, search } = req.query;
+
+  try {
+    let query = supabase
+      .from("bookings")
+      .select(
+        `
+        id,
+        booking_date,
+        departure_arrival_time,
+        voucher_code,
+        voucher_status,
+        voucher_verified_at,
+        amount,
+        currency,
+        payment_status,
+        created_at,
+        user_id,
+        services(service_name, location),
+        packages(name)
+      `,
+      )
+      .not("voucher_code", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(parseInt(limit));
+
+    if (status) {
+      query = query.eq("voucher_status", status);
+    }
+
+    if (date) {
+      query = query.eq("booking_date", date);
+    }
+
+    const { data: bookings, error } = await query;
+
+    if (error) {
+      log.error("Failed to fetch vouchers", error);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    // Format response
+    const vouchers = await Promise.all(
+      bookings.map(async (booking) => {
+        const service = Array.isArray(booking.services)
+          ? booking.services[0]
+          : booking.services;
+        const packageInfo = Array.isArray(booking.packages)
+          ? booking.packages[0]
+          : booking.packages;
+
+        // Get user info
+        let userName = null;
+        let userEmail = null;
+        try {
+          const { data: userData } = await supabase.auth.admin.getUserById(
+            booking.user_id,
+          );
+          userName = userData?.user?.user_metadata?.full_name;
+          userEmail = userData?.user?.email;
+        } catch (e) {
+          // Ignore user fetch errors
+        }
+
+        // Check if should be expired
+        let status = booking.voucher_status;
+        if (status === "active" && isVoucherExpired(booking.booking_date)) {
+          status = "expired";
+        }
+
+        return {
+          code: booking.voucher_code,
+          status: status,
+          bookingId: booking.id,
+          bookingDate: booking.booking_date,
+          bookingTime: booking.departure_arrival_time,
+          service: service?.service_name || "N/A",
+          location: service?.location || "N/A",
+          package: packageInfo?.name || null,
+          amount: formatMoney(booking.amount, booking.currency),
+          customer: userName || userEmail || "Unknown",
+          customerEmail: userEmail,
+          verifiedAt: booking.voucher_verified_at,
+          createdAt: booking.created_at,
+        };
+      }),
+    );
+
+    res.json({
+      total: vouchers.length,
+      vouchers,
+    });
+  } catch (error) {
+    log.error("Failed to list vouchers", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Resend voucher email
+app.post("/api/voucher/resend", async (req, res) => {
+  log.email("=".repeat(50));
+  log.email("Voucher resend request");
+
+  const { code, booking_id } = req.body;
+
+  if (!code && !booking_id) {
+    return res
+      .status(400)
+      .json({ error: "Voucher code or booking_id is required" });
+  }
+
+  try {
+    // Find the booking
+    let query = supabase.from("bookings").select("id, voucher_code");
+
+    if (code) {
+      query = query.eq("voucher_code", code.toUpperCase());
+    } else {
+      query = query.eq("id", parseInt(booking_id));
+    }
+
+    const { data: booking, error: fetchError } = await query.maybeSingle();
+
+    if (fetchError) {
+      log.error("Booking fetch error", fetchError);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    if (!booking.voucher_code) {
+      return res
+        .status(400)
+        .json({ error: "Booking does not have a voucher code yet" });
+    }
+
+    // Send the confirmation email (which includes voucher)
+    const result = await sendBookingConfirmationEmail(booking.id);
+
+    if (result.success) {
+      log.success(`Voucher email resent for booking #${booking.id}`);
+      res.json({
+        success: true,
+        message: "Voucher email resent successfully",
+        voucherCode: booking.voucher_code,
+        emailId: result.emailId,
+      });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    log.error("Voucher resend failed", error);
+    res.status(500).json({ error: error.message });
+  }
+
+  log.email("=".repeat(50));
+});
+
+// Cancel a voucher (admin action)
+app.post("/api/voucher/cancel", async (req, res) => {
+  log.info("=".repeat(50));
+  log.info("Voucher cancellation request");
+
+  const { code, reason, admin_id } = req.body;
+
+  if (!code) {
+    return res.status(400).json({ error: "Voucher code is required" });
+  }
+
+  try {
+    const { data: booking, error: fetchError } = await supabase
+      .from("bookings")
+      .select("id, voucher_code, voucher_status")
+      .eq("voucher_code", code.toUpperCase())
+      .maybeSingle();
+
+    if (fetchError) {
+      log.error("Booking fetch error", fetchError);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    if (!booking) {
+      return res.status(404).json({ error: "Voucher not found" });
+    }
+
+    if (booking.voucher_status === "used") {
+      return res
+        .status(400)
+        .json({ error: "Cannot cancel a voucher that has already been used" });
+    }
+
+    if (booking.voucher_status === "cancelled") {
+      return res.status(400).json({ error: "Voucher is already cancelled" });
+    }
+
+    // Cancel the voucher
+    const { error: updateError } = await supabase
+      .from("bookings")
+      .update({
+        voucher_status: "cancelled",
+        voucher_verified_at: new Date().toISOString(),
+        voucher_verified_by: admin_id || null,
+      })
+      .eq("id", booking.id);
+
+    if (updateError) {
+      log.error("Failed to cancel voucher", updateError);
+      return res.status(500).json({ error: "Failed to cancel voucher" });
+    }
+
+    log.success(`Voucher CANCELLED: ${code}`);
+
+    res.json({
+      success: true,
+      message: "Voucher cancelled successfully",
+      code: booking.voucher_code,
+      reason: reason || "No reason provided",
+    });
+  } catch (error) {
+    log.error("Voucher cancellation failed", error);
+    res.status(500).json({ error: error.message });
+  }
+
+  log.info("=".repeat(50));
 });
 
 // Stripe webhook - automatically sends email on payment success (only if Stripe is configured)
@@ -820,7 +1776,9 @@ app.post("/api/stripe-webhook", async (req, res) => {
           log.success(`Booking #${bookingId} status updated to succeeded`);
 
           // Send confirmation email
-          log.email(`Triggering confirmation email for booking #${bookingId}...`);
+          log.email(
+            `Triggering confirmation email for booking #${bookingId}...`,
+          );
           const emailResult = await sendBookingConfirmationEmail(
             parseInt(bookingId),
           );
@@ -828,12 +1786,17 @@ app.post("/api/stripe-webhook", async (req, res) => {
           if (emailResult.success) {
             log.success(`Confirmation email sent for booking #${bookingId}`);
           } else {
-            log.error(`Failed to send email for booking #${bookingId}`, emailResult.error);
+            log.error(
+              `Failed to send email for booking #${bookingId}`,
+              emailResult.error,
+            );
           }
         }
       } else {
         // Try to find booking by payment_intent_id
-        log.payment(`No booking_id in metadata, searching by payment_intent_id: ${paymentIntent.id}`);
+        log.payment(
+          `No booking_id in metadata, searching by payment_intent_id: ${paymentIntent.id}`,
+        );
         const { data: booking, error: findError } = await supabase
           .from("bookings")
           .select("id")
@@ -844,7 +1807,7 @@ app.post("/api/stripe-webhook", async (req, res) => {
           log.error("Error finding booking by payment_intent_id", findError);
         } else if (booking) {
           log.payment(`Found booking #${booking.id} by payment_intent_id`);
-          
+
           const { error: updateError } = await supabase
             .from("bookings")
             .update({
@@ -860,17 +1823,24 @@ app.post("/api/stripe-webhook", async (req, res) => {
             log.success(`Booking #${booking.id} status updated to succeeded`);
 
             // Send confirmation email
-            log.email(`Triggering confirmation email for booking #${booking.id}...`);
+            log.email(
+              `Triggering confirmation email for booking #${booking.id}...`,
+            );
             const emailResult = await sendBookingConfirmationEmail(booking.id);
-            
+
             if (emailResult.success) {
               log.success(`Confirmation email sent for booking #${booking.id}`);
             } else {
-              log.error(`Failed to send email for booking #${booking.id}`, emailResult.error);
+              log.error(
+                `Failed to send email for booking #${booking.id}`,
+                emailResult.error,
+              );
             }
           }
         } else {
-          log.warn(`No booking found for payment_intent_id: ${paymentIntent.id}`);
+          log.warn(
+            `No booking found for payment_intent_id: ${paymentIntent.id}`,
+          );
         }
       }
       break;
@@ -879,7 +1849,8 @@ app.post("/api/stripe-webhook", async (req, res) => {
     case "payment_intent.payment_failed": {
       const paymentIntent = event.data.object;
       const bookingId = paymentIntent.metadata?.booking_id;
-      const failureMessage = paymentIntent.last_payment_error?.message || "Unknown error";
+      const failureMessage =
+        paymentIntent.last_payment_error?.message || "Unknown error";
       const failureCode = paymentIntent.last_payment_error?.code || "unknown";
 
       log.payment(`Payment FAILED`, {
@@ -894,9 +1865,12 @@ app.post("/api/stripe-webhook", async (req, res) => {
           .from("bookings")
           .update({ payment_status: "failed" })
           .eq("id", parseInt(bookingId));
-        
+
         if (updateError) {
-          log.error(`Failed to update booking #${bookingId} status to failed`, updateError);
+          log.error(
+            `Failed to update booking #${bookingId} status to failed`,
+            updateError,
+          );
         } else {
           log.info(`Booking #${bookingId} status updated to failed`);
         }
@@ -919,9 +1893,12 @@ app.post("/api/stripe-webhook", async (req, res) => {
           .from("bookings")
           .update({ payment_status: "canceled" })
           .eq("id", parseInt(bookingId));
-        
+
         if (updateError) {
-          log.error(`Failed to update booking #${bookingId} status to canceled`, updateError);
+          log.error(
+            `Failed to update booking #${bookingId} status to canceled`,
+            updateError,
+          );
         } else {
           log.info(`Booking #${bookingId} status updated to canceled`);
         }
