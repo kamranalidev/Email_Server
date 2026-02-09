@@ -10,6 +10,52 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// ==================== LOGGING UTILITIES ====================
+const log = {
+  info: (msg, data = null) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ℹ️  ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+  },
+  success: (msg, data = null) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ✅ ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+  },
+  error: (msg, error = null) => {
+    const timestamp = new Date().toISOString();
+    console.error(`[${timestamp}] ❌ ${msg}`, error?.message || error || "");
+    if (error?.stack) console.error(error.stack);
+  },
+  warn: (msg, data = null) => {
+    const timestamp = new Date().toISOString();
+    console.warn(`[${timestamp}] ⚠️  ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+  },
+  payment: (msg, data = null) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] 💳 ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+  },
+  email: (msg, data = null) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] 📧 ${msg}`, data ? JSON.stringify(data, null, 2) : "");
+  },
+};
+
+// ==================== STARTUP LOGGING ====================
+log.info("=".repeat(60));
+log.info("TravelGuru Server Starting...");
+log.info("=".repeat(60));
+log.info("Environment Check:", {
+  NODE_ENV: process.env.NODE_ENV || "development",
+  PORT: PORT,
+  SMTP_HOST: process.env.SMTP_HOST || "smtp.gmail.com",
+  SMTP_USER: process.env.SMTP_USER ? "✓ Set" : "✗ Missing",
+  SMTP_PASS: process.env.SMTP_PASS ? "✓ Set" : "✗ Missing",
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? "✓ Set" : "✗ Missing",
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ? "✓ Set" : "✗ Missing",
+  SUPABASE_URL: process.env.SUPABASE_URL ? "✓ Set" : "✗ Missing",
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? "✓ Set" : "✗ Missing",
+  FRONTEND_URL: process.env.FRONTEND_URL || "https://travelguroo.com",
+});
+
 // Middleware
 app.use(cors());
 
@@ -29,6 +75,7 @@ const supabase = createClient(
 );
 
 // Configure Nodemailer transporter
+log.info("Configuring SMTP transporter...");
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || "smtp.gmail.com",
   port: parseInt(process.env.SMTP_PORT || "587"),
@@ -40,11 +87,12 @@ const transporter = nodemailer.createTransport({
 });
 
 // Verify transporter connection
-transporter.verify((error, success) => {
+transporter.verify((error) => {
   if (error) {
-    console.error("❌ SMTP connection error:", error.message);
+    log.error("SMTP connection FAILED", error);
+    log.warn("Email sending will not work until SMTP is configured correctly");
   } else {
-    console.log("✅ SMTP server is ready to send emails");
+    log.success("SMTP server is ready to send emails");
   }
 });
 
@@ -402,8 +450,11 @@ const generateBookingEmailHTML = (booking, service, packageInfo, userName) => {
 
 // Send booking confirmation email
 const sendBookingConfirmationEmail = async (bookingId) => {
+  log.email(`Starting email send for booking #${bookingId}`);
+  
   try {
-    // Fetch booking with related data
+    // Step 1: Fetch booking with related data
+    log.email(`Fetching booking data for #${bookingId}...`);
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .select(
@@ -427,20 +478,43 @@ const sendBookingConfirmationEmail = async (bookingId) => {
       .eq("id", bookingId)
       .maybeSingle();
 
-    if (bookingError) throw bookingError;
-    if (!booking) throw new Error("Booking not found");
+    if (bookingError) {
+      log.error(`Failed to fetch booking #${bookingId}`, bookingError);
+      throw bookingError;
+    }
+    if (!booking) {
+      log.error(`Booking #${bookingId} not found in database`);
+      throw new Error("Booking not found");
+    }
 
-    // Get user email
+    log.email(`Booking found:`, {
+      id: booking.id,
+      user_id: booking.user_id,
+      service_id: booking.service_id,
+      payment_status: booking.payment_status,
+      amount: booking.amount,
+    });
+
+    // Step 2: Get user email
+    log.email(`Fetching user data for user_id: ${booking.user_id}...`);
     const { data: userData, error: userError } =
       await supabase.auth.admin.getUserById(booking.user_id);
 
-    if (userError) throw userError;
-    if (!userData?.user?.email) throw new Error("User email not found");
+    if (userError) {
+      log.error(`Failed to fetch user ${booking.user_id}`, userError);
+      throw userError;
+    }
+    if (!userData?.user?.email) {
+      log.error(`User ${booking.user_id} has no email address`);
+      throw new Error("User email not found");
+    }
 
     const userEmail = userData.user.email;
     const userName =
       userData.user.user_metadata?.full_name ||
       userData.user.email.split("@")[0];
+
+    log.email(`User found:`, { email: userEmail, name: userName });
 
     // Normalize service and package data
     const service = Array.isArray(booking.services)
@@ -453,7 +527,10 @@ const sendBookingConfirmationEmail = async (bookingId) => {
 
     const serviceName = service?.service_name || "Your Booking";
 
-    // Generate email HTML with user name
+    log.email(`Service: ${serviceName}, Package: ${packageInfo?.name || "None"}`);
+
+    // Step 3: Generate email HTML
+    log.email("Generating email HTML...");
     const html = generateBookingEmailHTML(
       booking,
       service,
@@ -463,7 +540,7 @@ const sendBookingConfirmationEmail = async (bookingId) => {
 
     const adminEmail = process.env.SMTP_FROM || process.env.SMTP_USER;
 
-    // Send email to customer
+    // Step 4: Send email to customer
     const mailOptions = {
       from: `"TravelGuru" <${adminEmail}>`,
       to: userEmail,
@@ -471,15 +548,15 @@ const sendBookingConfirmationEmail = async (bookingId) => {
       html: html,
     };
 
+    log.email(`Sending confirmation email to ${userEmail}...`);
     const info = await transporter.sendMail(mailOptions);
 
-    console.log(
-      `✅ Confirmation email sent to ${userEmail} for booking #${bookingId}`,
-    );
-    console.log(`   Message ID: ${info.messageId}`);
+    log.success(`Confirmation email SENT to ${userEmail} for booking #${bookingId}`);
+    log.email(`Message ID: ${info.messageId}`);
 
-    // Notify admin using the same sender email
+    // Step 5: Notify admin
     if (adminEmail) {
+      log.email(`Sending admin notification to ${adminEmail}...`);
       const adminHtml = `
         <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1a1a1a;">
           <h2 style="margin: 0 0 12px;">New booking placed</h2>
@@ -521,15 +598,12 @@ const sendBookingConfirmationEmail = async (bookingId) => {
         subject: `🧾 New Booking Notification - #${booking.id}`,
         html: adminHtml,
       });
-      console.log(`🔔 Admin notification sent for booking #${bookingId}`);
+      log.success(`Admin notification SENT for booking #${bookingId}`);
     }
 
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error(
-      `❌ Failed to send email for booking #${bookingId}:`,
-      error.message,
-    );
+    log.error(`FAILED to send email for booking #${bookingId}`, error);
     return { success: false, error: error.message };
   }
 };
@@ -541,31 +615,158 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Diagnostic endpoint to check email and payment configuration
+app.get("/api/diagnostics", async (req, res) => {
+  log.info("=".repeat(50));
+  log.info("Diagnostics endpoint called");
+
+  const diagnostics = {
+    timestamp: new Date().toISOString(),
+    smtp: {
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      user: process.env.SMTP_USER ? "configured" : "MISSING",
+      pass: process.env.SMTP_PASS ? "configured" : "MISSING",
+      from: process.env.SMTP_FROM || process.env.SMTP_USER || "MISSING",
+      connection: "checking...",
+    },
+    stripe: {
+      secretKey: process.env.STRIPE_SECRET_KEY ? "configured" : "MISSING",
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ? "configured" : "MISSING",
+    },
+    supabase: {
+      url: process.env.SUPABASE_URL ? "configured" : "MISSING",
+      serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ? "configured" : "MISSING",
+    },
+    frontend: {
+      url: process.env.FRONTEND_URL || "https://travelguroo.com",
+    },
+  };
+
+  // Test SMTP connection
+  try {
+    await transporter.verify();
+    diagnostics.smtp.connection = "OK";
+    log.success("SMTP connection verified");
+  } catch (error) {
+    diagnostics.smtp.connection = `FAILED: ${error.message}`;
+    log.error("SMTP connection failed", error);
+  }
+
+  log.info("Diagnostics result:", diagnostics);
+  log.info("=".repeat(50));
+
+  res.json(diagnostics);
+});
+
+// Test email endpoint (sends a test email to verify SMTP works)
+app.post("/api/test-email", async (req, res) => {
+  log.email("=".repeat(50));
+  log.email("Test email endpoint called");
+
+  const { to } = req.body;
+  const testEmail = to || process.env.SMTP_USER;
+
+  if (!testEmail) {
+    log.error("No email address provided for test");
+    return res.status(400).json({ error: "No email address provided. Set 'to' in request body or configure SMTP_USER." });
+  }
+
+  try {
+    log.email(`Sending test email to ${testEmail}...`);
+
+    const info = await transporter.sendMail({
+      from: `"TravelGuru Test" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+      to: testEmail,
+      subject: "TravelGuru Email Test - " + new Date().toISOString(),
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #FF621F;">✅ TravelGuru Email Test Successful!</h2>
+          <p>This is a test email sent at: <strong>${new Date().toLocaleString()}</strong></p>
+          <p>If you received this email, your SMTP configuration is working correctly.</p>
+          <hr style="margin: 20px 0;">
+          <p style="color: #666; font-size: 12px;">Server: ${process.env.SMTP_HOST || "smtp.gmail.com"}:${process.env.SMTP_PORT || "587"}</p>
+        </div>
+      `,
+    });
+
+    log.success(`Test email SENT to ${testEmail}`, { messageId: info.messageId });
+    log.email("=".repeat(50));
+
+    res.json({
+      success: true,
+      message: `Test email sent to ${testEmail}`,
+      messageId: info.messageId,
+    });
+  } catch (error) {
+    log.error(`Test email FAILED to ${testEmail}`, error);
+    log.email("=".repeat(50));
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      hint: getEmailErrorHint(error),
+    });
+  }
+});
+
+// Helper to provide user-friendly hints for common email errors
+const getEmailErrorHint = (error) => {
+  const msg = error.message?.toLowerCase() || "";
+  
+  if (msg.includes("auth") || msg.includes("authentication") || msg.includes("535")) {
+    return "Authentication failed. Check SMTP_USER and SMTP_PASS. For Gmail, use an App Password (not your regular password).";
+  }
+  if (msg.includes("connection") || msg.includes("timeout") || msg.includes("econnrefused")) {
+    return "Cannot connect to SMTP server. Check SMTP_HOST and SMTP_PORT. Ensure the server is accessible.";
+  }
+  if (msg.includes("certificate") || msg.includes("ssl") || msg.includes("tls")) {
+    return "SSL/TLS error. Try changing SMTP_SECURE setting or SMTP_PORT (587 for STARTTLS, 465 for SSL).";
+  }
+  if (msg.includes("rate") || msg.includes("limit") || msg.includes("quota")) {
+    return "Rate limit reached. Wait before sending more emails or check your email provider's sending limits.";
+  }
+  return "Check your SMTP configuration in environment variables.";
+};
+
 // Manual send booking confirmation (for testing or resending)
 app.post("/api/send-booking-confirmation", async (req, res) => {
+  log.email("=".repeat(50));
+  log.email("Manual email request received");
+
   try {
     const { booking_id } = req.body;
 
     if (!booking_id) {
+      log.error("Missing booking_id in request body");
       return res.status(400).json({ error: "booking_id is required" });
     }
 
+    log.email(`Processing request for booking #${booking_id}`);
     const result = await sendBookingConfirmationEmail(booking_id);
 
     if (result.success) {
+      log.success(`Manual email request completed for booking #${booking_id}`);
       res.json({ success: true, messageId: result.messageId });
     } else {
+      log.error(`Manual email request failed for booking #${booking_id}`, result.error);
       res.status(500).json({ success: false, error: result.error });
     }
   } catch (error) {
-    console.error("Send confirmation error:", error);
+    log.error("Unexpected error in send-booking-confirmation", error);
     res.status(500).json({ error: error.message });
   }
+
+  log.email("=".repeat(50));
 });
 
 // Stripe webhook - automatically sends email on payment success (only if Stripe is configured)
 app.post("/api/stripe-webhook", async (req, res) => {
+  log.payment("=".repeat(50));
+  log.payment("Stripe Webhook received");
+
   if (!stripe) {
+    log.error("Stripe is not configured - webhook cannot be processed");
     return res.status(501).send("Stripe is not configured");
   }
 
@@ -573,7 +774,7 @@ app.post("/api/stripe-webhook", async (req, res) => {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!webhookSecret) {
-    console.error("Missing STRIPE_WEBHOOK_SECRET");
+    log.error("Missing STRIPE_WEBHOOK_SECRET environment variable");
     return res.status(500).send("Webhook secret not configured");
   }
 
@@ -581,8 +782,9 @@ app.post("/api/stripe-webhook", async (req, res) => {
 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    log.payment(`Webhook verified - Event type: ${event.type}`);
   } catch (err) {
-    console.error(`Webhook signature verification failed:`, err.message);
+    log.error("Webhook signature verification FAILED", err);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -592,12 +794,17 @@ app.post("/api/stripe-webhook", async (req, res) => {
       const paymentIntent = event.data.object;
       const bookingId = paymentIntent.metadata?.booking_id;
 
-      console.log(
-        `💳 Payment succeeded for PaymentIntent: ${paymentIntent.id}`,
-      );
+      log.payment(`Payment SUCCEEDED`, {
+        paymentIntentId: paymentIntent.id,
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        bookingIdFromMetadata: bookingId || "not provided",
+        userId: paymentIntent.metadata?.user_id || "not provided",
+      });
 
       if (bookingId) {
         // Update booking status in database
+        log.payment(`Updating booking #${bookingId} status...`);
         const { error: updateError } = await supabase
           .from("bookings")
           .update({
@@ -609,29 +816,37 @@ app.post("/api/stripe-webhook", async (req, res) => {
           .eq("id", parseInt(bookingId));
 
         if (updateError) {
-          console.error("Failed to update booking:", updateError);
+          log.error(`Failed to update booking #${bookingId}`, updateError);
         } else {
-          console.log(`📝 Updated booking #${bookingId} status to succeeded`);
+          log.success(`Booking #${bookingId} status updated to succeeded`);
 
           // Send confirmation email
+          log.email(`Triggering confirmation email for booking #${bookingId}...`);
           const emailResult = await sendBookingConfirmationEmail(
             parseInt(bookingId),
           );
 
           if (emailResult.success) {
-            console.log(`📧 Confirmation email sent for booking #${bookingId}`);
+            log.success(`Confirmation email sent for booking #${bookingId}`);
+          } else {
+            log.error(`Failed to send email for booking #${bookingId}`, emailResult.error);
           }
         }
       } else {
         // Try to find booking by payment_intent_id
-        const { data: booking } = await supabase
+        log.payment(`No booking_id in metadata, searching by payment_intent_id: ${paymentIntent.id}`);
+        const { data: booking, error: findError } = await supabase
           .from("bookings")
           .select("id")
           .eq("payment_intent_id", paymentIntent.id)
           .maybeSingle();
 
-        if (booking) {
-          await supabase
+        if (findError) {
+          log.error("Error finding booking by payment_intent_id", findError);
+        } else if (booking) {
+          log.payment(`Found booking #${booking.id} by payment_intent_id`);
+          
+          const { error: updateError } = await supabase
             .from("bookings")
             .update({
               payment_status: "succeeded",
@@ -640,8 +855,23 @@ app.post("/api/stripe-webhook", async (req, res) => {
             })
             .eq("id", booking.id);
 
-          // Send confirmation email
-          await sendBookingConfirmationEmail(booking.id);
+          if (updateError) {
+            log.error(`Failed to update booking #${booking.id}`, updateError);
+          } else {
+            log.success(`Booking #${booking.id} status updated to succeeded`);
+
+            // Send confirmation email
+            log.email(`Triggering confirmation email for booking #${booking.id}...`);
+            const emailResult = await sendBookingConfirmationEmail(booking.id);
+            
+            if (emailResult.success) {
+              log.success(`Confirmation email sent for booking #${booking.id}`);
+            } else {
+              log.error(`Failed to send email for booking #${booking.id}`, emailResult.error);
+            }
+          }
+        } else {
+          log.warn(`No booking found for payment_intent_id: ${paymentIntent.id}`);
         }
       }
       break;
@@ -650,14 +880,27 @@ app.post("/api/stripe-webhook", async (req, res) => {
     case "payment_intent.payment_failed": {
       const paymentIntent = event.data.object;
       const bookingId = paymentIntent.metadata?.booking_id;
+      const failureMessage = paymentIntent.last_payment_error?.message || "Unknown error";
+      const failureCode = paymentIntent.last_payment_error?.code || "unknown";
 
-      console.log(`❌ Payment failed for PaymentIntent: ${paymentIntent.id}`);
+      log.payment(`Payment FAILED`, {
+        paymentIntentId: paymentIntent.id,
+        bookingId: bookingId || "not provided",
+        failureCode,
+        failureMessage,
+      });
 
       if (bookingId) {
-        await supabase
+        const { error: updateError } = await supabase
           .from("bookings")
           .update({ payment_status: "failed" })
           .eq("id", parseInt(bookingId));
+        
+        if (updateError) {
+          log.error(`Failed to update booking #${bookingId} status to failed`, updateError);
+        } else {
+          log.info(`Booking #${bookingId} status updated to failed`);
+        }
       }
       break;
     }
@@ -666,21 +909,33 @@ app.post("/api/stripe-webhook", async (req, res) => {
       const paymentIntent = event.data.object;
       const bookingId = paymentIntent.metadata?.booking_id;
 
-      console.log(`🚫 Payment canceled for PaymentIntent: ${paymentIntent.id}`);
+      log.payment(`Payment CANCELED`, {
+        paymentIntentId: paymentIntent.id,
+        bookingId: bookingId || "not provided",
+        cancellationReason: paymentIntent.cancellation_reason || "not provided",
+      });
 
       if (bookingId) {
-        await supabase
+        const { error: updateError } = await supabase
           .from("bookings")
           .update({ payment_status: "canceled" })
           .eq("id", parseInt(bookingId));
+        
+        if (updateError) {
+          log.error(`Failed to update booking #${bookingId} status to canceled`, updateError);
+        } else {
+          log.info(`Booking #${bookingId} status updated to canceled`);
+        }
       }
       break;
     }
 
     default:
-      console.log(`Unhandled event type: ${event.type}`);
+      log.info(`Unhandled webhook event type: ${event.type}`);
   }
 
+  log.payment("Webhook processing complete");
+  log.payment("=".repeat(50));
   res.json({ received: true });
 });
 

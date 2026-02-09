@@ -77,6 +77,45 @@ npm start
 GET /api/health
 ```
 
+### Diagnostics (Check Configuration)
+
+```
+GET /api/diagnostics
+```
+
+Returns the status of SMTP, Stripe, and Supabase configuration. Useful for debugging.
+
+**Example Response:**
+```json
+{
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "smtp": {
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "user": "configured",
+    "pass": "configured",
+    "connection": "OK"
+  },
+  "stripe": {
+    "secretKey": "configured",
+    "webhookSecret": "configured"
+  },
+  "supabase": {
+    "url": "configured",
+    "serviceRoleKey": "configured"
+  }
+}
+```
+
+### Test Email
+
+```
+POST /api/test-email
+Body: { "to": "test@example.com" }  // Optional, defaults to SMTP_USER
+```
+
+Sends a test email to verify SMTP configuration is working.
+
 ### Send Booking Confirmation (Manual/Resend)
 
 ```
