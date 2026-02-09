@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
@@ -46,9 +46,8 @@ log.info("=".repeat(60));
 log.info("Environment Check:", {
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: PORT,
-  SMTP_HOST: process.env.SMTP_HOST || "smtp.gmail.com",
-  SMTP_USER: process.env.SMTP_USER ? "✓ Set" : "✗ Missing",
-  SMTP_PASS: process.env.SMTP_PASS ? "✓ Set" : "✗ Missing",
+  RESEND_API_KEY: process.env.RESEND_API_KEY ? "✓ Set" : "✗ Missing",
+  EMAIL_FROM: process.env.EMAIL_FROM || "onboarding@resend.dev",
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? "✓ Set" : "✗ Missing",
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ? "✓ Set" : "✗ Missing",
   SUPABASE_URL: process.env.SUPABASE_URL ? "✓ Set" : "✗ Missing",
@@ -74,27 +73,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
-// Configure Nodemailer transporter
-log.info("Configuring SMTP transporter...");
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: parseInt(process.env.SMTP_PORT || "587"),
-  secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+// Initialize Resend for email
+const resend = process.env.RESEND_API_KEY 
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 
-// Verify transporter connection
-transporter.verify((error) => {
-  if (error) {
-    log.error("SMTP connection FAILED", error);
-    log.warn("Email sending will not work until SMTP is configured correctly");
-  } else {
-    log.success("SMTP server is ready to send emails");
-  }
-});
+if (resend) {
+  log.success("Resend email service initialized");
+} else {
+  log.warn("RESEND_API_KEY not set - email sending will not work");
+}
+
+// Default from email (use verified domain or Resend's test address)
+const EMAIL_FROM = process.env.EMAIL_FROM || "TravelGuru <onboarding@resend.dev>";
 
 // Helper: Format money
 const formatMoney = (amountMinor, currency = "aed") => {
@@ -529,6 +520,12 @@ const sendBookingConfirmationEmail = async (bookingId) => {
 
     log.email(`Service: ${serviceName}, Package: ${packageInfo?.name || "None"}`);
 
+    // Check if Resend is configured
+    if (!resend) {
+      log.error("Resend is not configured - cannot send email");
+      throw new Error("Email service not configured. Set RESEND_API_KEY.");
+    }
+
     // Step 3: Generate email HTML
     log.email("Generating email HTML...");
     const html = generateBookingEmailHTML(
@@ -538,23 +535,26 @@ const sendBookingConfirmationEmail = async (bookingId) => {
       userName,
     );
 
-    const adminEmail = process.env.SMTP_FROM || process.env.SMTP_USER;
-
-    // Step 4: Send email to customer
-    const mailOptions = {
-      from: `"TravelGuru" <${adminEmail}>`,
+    // Step 4: Send email to customer using Resend
+    log.email(`Sending confirmation email to ${userEmail}...`);
+    
+    const { data: emailData, error: emailError } = await resend.emails.send({
+      from: EMAIL_FROM,
       to: userEmail,
       subject: `✅ Booking Confirmed: ${serviceName} - #${booking.id}`,
       html: html,
-    };
+    });
 
-    log.email(`Sending confirmation email to ${userEmail}...`);
-    const info = await transporter.sendMail(mailOptions);
+    if (emailError) {
+      log.error(`Resend API error`, emailError);
+      throw new Error(emailError.message || "Failed to send email via Resend");
+    }
 
     log.success(`Confirmation email SENT to ${userEmail} for booking #${bookingId}`);
-    log.email(`Message ID: ${info.messageId}`);
+    log.email(`Resend Email ID: ${emailData?.id}`);
 
-    // Step 5: Notify admin
+    // Step 5: Notify admin (optional)
+    const adminEmail = process.env.ADMIN_EMAIL;
     if (adminEmail) {
       log.email(`Sending admin notification to ${adminEmail}...`);
       const adminHtml = `
@@ -592,16 +592,21 @@ const sendBookingConfirmationEmail = async (bookingId) => {
         </div>
       `;
 
-      await transporter.sendMail({
-        from: `"TravelGuru" <${adminEmail}>`,
+      const { error: adminEmailError } = await resend.emails.send({
+        from: EMAIL_FROM,
         to: adminEmail,
         subject: `🧾 New Booking Notification - #${booking.id}`,
         html: adminHtml,
       });
-      log.success(`Admin notification SENT for booking #${bookingId}`);
+      
+      if (adminEmailError) {
+        log.warn(`Failed to send admin notification`, adminEmailError);
+      } else {
+        log.success(`Admin notification SENT for booking #${bookingId}`);
+      }
     }
 
-    return { success: true, messageId: info.messageId };
+    return { success: true, emailId: emailData?.id };
   } catch (error) {
     log.error(`FAILED to send email for booking #${bookingId}`, error);
     return { success: false, error: error.message };
@@ -622,13 +627,11 @@ app.get("/api/diagnostics", async (req, res) => {
 
   const diagnostics = {
     timestamp: new Date().toISOString(),
-    smtp: {
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      user: process.env.SMTP_USER ? "configured" : "MISSING",
-      pass: process.env.SMTP_PASS ? "configured" : "MISSING",
-      from: process.env.SMTP_FROM || process.env.SMTP_USER || "MISSING",
-      connection: "checking...",
+    email: {
+      provider: "Resend",
+      apiKey: process.env.RESEND_API_KEY ? "configured" : "MISSING",
+      from: EMAIL_FROM,
+      status: resend ? "ready" : "NOT_CONFIGURED",
     },
     stripe: {
       secretKey: process.env.STRIPE_SECRET_KEY ? "configured" : "MISSING",
@@ -641,17 +644,8 @@ app.get("/api/diagnostics", async (req, res) => {
     frontend: {
       url: process.env.FRONTEND_URL || "https://travelguroo.com",
     },
+    adminEmail: process.env.ADMIN_EMAIL || "not set (admin notifications disabled)",
   };
-
-  // Test SMTP connection
-  try {
-    await transporter.verify();
-    diagnostics.smtp.connection = "OK";
-    log.success("SMTP connection verified");
-  } catch (error) {
-    diagnostics.smtp.connection = `FAILED: ${error.message}`;
-    log.error("SMTP connection failed", error);
-  }
 
   log.info("Diagnostics result:", diagnostics);
   log.info("=".repeat(50));
@@ -659,74 +653,79 @@ app.get("/api/diagnostics", async (req, res) => {
   res.json(diagnostics);
 });
 
-// Test email endpoint (sends a test email to verify SMTP works)
+// Test email endpoint (sends a test email to verify Resend works)
 app.post("/api/test-email", async (req, res) => {
   log.email("=".repeat(50));
   log.email("Test email endpoint called");
 
   const { to } = req.body;
-  const testEmail = to || process.env.SMTP_USER;
 
-  if (!testEmail) {
+  if (!to) {
     log.error("No email address provided for test");
-    return res.status(400).json({ error: "No email address provided. Set 'to' in request body or configure SMTP_USER." });
+    return res.status(400).json({ error: "Please provide 'to' email address in request body." });
+  }
+
+  if (!resend) {
+    log.error("Resend is not configured");
+    return res.status(500).json({ error: "Email service not configured. Set RESEND_API_KEY." });
   }
 
   try {
-    log.email(`Sending test email to ${testEmail}...`);
+    log.email(`Sending test email to ${to}...`);
 
-    const info = await transporter.sendMail({
-      from: `"TravelGuru Test" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
-      to: testEmail,
+    const { data, error } = await resend.emails.send({
+      from: EMAIL_FROM,
+      to: to,
       subject: "TravelGuru Email Test - " + new Date().toISOString(),
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px;">
           <h2 style="color: #FF621F;">✅ TravelGuru Email Test Successful!</h2>
           <p>This is a test email sent at: <strong>${new Date().toLocaleString()}</strong></p>
-          <p>If you received this email, your SMTP configuration is working correctly.</p>
+          <p>If you received this email, your Resend configuration is working correctly.</p>
           <hr style="margin: 20px 0;">
-          <p style="color: #666; font-size: 12px;">Server: ${process.env.SMTP_HOST || "smtp.gmail.com"}:${process.env.SMTP_PORT || "587"}</p>
+          <p style="color: #666; font-size: 12px;">Email Provider: Resend</p>
         </div>
       `,
     });
 
-    log.success(`Test email SENT to ${testEmail}`, { messageId: info.messageId });
+    if (error) {
+      throw new Error(error.message || "Resend API error");
+    }
+
+    log.success(`Test email SENT to ${to}`, { emailId: data?.id });
     log.email("=".repeat(50));
 
     res.json({
       success: true,
-      message: `Test email sent to ${testEmail}`,
-      messageId: info.messageId,
+      message: `Test email sent to ${to}`,
+      emailId: data?.id,
     });
   } catch (error) {
-    log.error(`Test email FAILED to ${testEmail}`, error);
+    log.error(`Test email FAILED to ${to}`, error);
     log.email("=".repeat(50));
 
     res.status(500).json({
       success: false,
       error: error.message,
-      hint: getEmailErrorHint(error),
+      hint: getResendErrorHint(error),
     });
   }
 });
 
-// Helper to provide user-friendly hints for common email errors
-const getEmailErrorHint = (error) => {
+// Helper to provide user-friendly hints for common Resend errors
+const getResendErrorHint = (error) => {
   const msg = error.message?.toLowerCase() || "";
   
-  if (msg.includes("auth") || msg.includes("authentication") || msg.includes("535")) {
-    return "Authentication failed. Check SMTP_USER and SMTP_PASS. For Gmail, use an App Password (not your regular password).";
+  if (msg.includes("api key") || msg.includes("unauthorized") || msg.includes("401")) {
+    return "Invalid API key. Check RESEND_API_KEY is correct.";
   }
-  if (msg.includes("connection") || msg.includes("timeout") || msg.includes("econnrefused")) {
-    return "Cannot connect to SMTP server. Check SMTP_HOST and SMTP_PORT. Ensure the server is accessible.";
+  if (msg.includes("domain") || msg.includes("not verified")) {
+    return "Email domain not verified. Use 'onboarding@resend.dev' for testing or verify your domain in Resend dashboard.";
   }
-  if (msg.includes("certificate") || msg.includes("ssl") || msg.includes("tls")) {
-    return "SSL/TLS error. Try changing SMTP_SECURE setting or SMTP_PORT (587 for STARTTLS, 465 for SSL).";
+  if (msg.includes("rate") || msg.includes("limit")) {
+    return "Rate limit reached. Wait before sending more emails.";
   }
-  if (msg.includes("rate") || msg.includes("limit") || msg.includes("quota")) {
-    return "Rate limit reached. Wait before sending more emails or check your email provider's sending limits.";
-  }
-  return "Check your SMTP configuration in environment variables.";
+  return "Check Resend dashboard for more details: https://resend.com/emails";
 };
 
 // Manual send booking confirmation (for testing or resending)

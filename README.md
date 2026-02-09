@@ -1,10 +1,10 @@
 # TravelGuru Backend Server
 
-Express.js API server with Nodemailer for sending booking confirmation emails.
+Express.js API server with Resend for sending booking confirmation emails.
 
 ## Features
 
-- 📧 **Nodemailer Integration** - Send beautiful HTML emails when bookings are confirmed
+- 📧 **Resend Email Integration** - Send beautiful HTML emails when bookings are confirmed
 - 💳 **Stripe Webhook Handler** - Automatically triggers email on successful payment
 - 🔒 **Supabase Integration** - Fetches booking and user data securely
 
@@ -34,26 +34,21 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 STRIPE_SECRET_KEY=sk_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 
-# SMTP (Gmail Example)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your_email@gmail.com
-SMTP_PASS=your_app_password
-SMTP_FROM=TravelGuru <your_email@gmail.com>
+# Resend Email (https://resend.com)
+RESEND_API_KEY=re_...
+EMAIL_FROM=TravelGuru <onboarding@resend.dev>
+ADMIN_EMAIL=admin@yourcompany.com  # Optional: receive booking notifications
 
 # Frontend URL
 FRONTEND_URL=https://travelguroo.com
 ```
 
-### 3. Gmail Setup (App Password)
+### 3. Resend Setup
 
-If using Gmail:
-
-1. Enable 2-Factor Authentication on your Google Account
-2. Go to Google Account → Security → App Passwords
-3. Create a new App Password for "Mail"
-4. Use this password as `SMTP_PASS`
+1. Sign up at [resend.com](https://resend.com)
+2. Get your API key from the dashboard
+3. For testing, use `onboarding@resend.dev` as the from address
+4. For production, verify your domain to send from your own email address
 
 ### 4. Run the Server
 
