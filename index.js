@@ -176,6 +176,21 @@ const generateVoucherEmailHTML = (
   const greeting = userName ? escapeHtml(userName) : "Valued Customer";
   const bookingDate = booking.booking_date || "";
 
+  // Participant information
+  const adults = booking.adults || 1;
+  const children = booking.children || 0;
+  const infants = booking.infants || 0;
+  const totalGuests = adults + children + infants;
+  const adultPrice = booking.adult_price
+    ? formatMoney(booking.adult_price * 100, booking.currency)
+    : null;
+  const childPrice = booking.child_price
+    ? formatMoney(booking.child_price * 100, booking.currency)
+    : null;
+  const infantPrice = booking.infant_price
+    ? formatMoney(booking.infant_price * 100, booking.currency)
+    : null;
+
   return `
 <!DOCTYPE html>
 <html>
@@ -317,6 +332,64 @@ const generateVoucherEmailHTML = (
                           </table>
                         </td>
                       </tr>
+                      <!-- Participants Breakdown -->
+                      ${
+                        totalGuests > 1 || children > 0 || infants > 0
+                          ? `
+                      <tr>
+                        <td style="padding: 12px 0;">
+                          <p style="color: #888; margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Guests</p>
+                          <table width="100%" cellpadding="0" cellspacing="0" style="background: #f8f9fa; border-radius: 8px; padding: 12px;">
+                            <tr>
+                              <td style="padding: 8px 12px;">
+                                <table width="100%" cellpadding="0" cellspacing="0">
+                                  ${
+                                    adults > 0
+                                      ? `
+                                  <tr>
+                                    <td style="color: #1a1a1a; font-size: 14px; padding: 4px 0;">👤 Adults</td>
+                                    <td style="color: #666; font-size: 14px; text-align: center; padding: 4px 0;">${adults}</td>
+                                    <td style="color: #FF621F; font-size: 14px; text-align: right; padding: 4px 0; font-weight: 600;">${adultPrice ? `${adultPrice}/person` : ""}</td>
+                                  </tr>
+                                  `
+                                      : ""
+                                  }
+                                  ${
+                                    children > 0
+                                      ? `
+                                  <tr>
+                                    <td style="color: #1a1a1a; font-size: 14px; padding: 4px 0;">👦 Children (3-12)</td>
+                                    <td style="color: #666; font-size: 14px; text-align: center; padding: 4px 0;">${children}</td>
+                                    <td style="color: #FF621F; font-size: 14px; text-align: right; padding: 4px 0; font-weight: 600;">${childPrice ? `${childPrice}/child` : ""}</td>
+                                  </tr>
+                                  `
+                                      : ""
+                                  }
+                                  ${
+                                    infants > 0
+                                      ? `
+                                  <tr>
+                                    <td style="color: #1a1a1a; font-size: 14px; padding: 4px 0;">👶 Infants (0-2)</td>
+                                    <td style="color: #666; font-size: 14px; text-align: center; padding: 4px 0;">${infants}</td>
+                                    <td style="color: #4CAF50; font-size: 14px; text-align: right; padding: 4px 0; font-weight: 600;">${infantPrice && booking.infant_price > 0 ? `${infantPrice}/infant` : "FREE"}</td>
+                                  </tr>
+                                  `
+                                      : ""
+                                  }
+                                  <tr>
+                                    <td colspan="3" style="border-top: 1px dashed #ddd; padding-top: 8px; margin-top: 8px;">
+                                      <p style="color: #1a1a1a; font-size: 14px; font-weight: 700; margin: 4px 0;">Total Guests: ${totalGuests}</p>
+                                    </td>
+                                  </tr>
+                                </table>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                      `
+                          : ""
+                      }
                       <!-- Divider -->
                       <tr>
                         <td style="padding: 16px 0;">
@@ -445,6 +518,20 @@ const generateAdminNotificationHTML = (
   const amount = formatMoney(booking.amount, booking.currency);
   const bookingTime = booking.departure_arrival_time || "Not specified";
 
+  // Participant information
+  const adults = booking.adults || 1;
+  const children = booking.children || 0;
+  const infants = booking.infants || 0;
+  const totalGuests = adults + children + infants;
+
+  // Build guests row HTML
+  let guestsHtml = `👤 ${adults} Adult${adults !== 1 ? "s" : ""}`;
+  if (children > 0)
+    guestsHtml += ` · 👦 ${children} Child${children !== 1 ? "ren" : ""}`;
+  if (infants > 0)
+    guestsHtml += ` · 👶 ${infants} Infant${infants !== 1 ? "s" : ""}`;
+  if (totalGuests > 1) guestsHtml += ` (${totalGuests} total)`;
+
   return `
 <!DOCTYPE html>
 <html>
@@ -500,6 +587,10 @@ const generateAdminNotificationHTML = (
           <tr>
             <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Time</td>
             <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">🕐 ${escapeHtml(bookingTime)}</td>
+          </tr>
+          <tr style="background-color: #f8f9fa;">
+            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Guests</td>
+            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">${guestsHtml}</td>
           </tr>
           <tr style="background-color: #e8f5e9;">
             <td style="font-weight: 600; color: #333;">Amount Paid</td>
@@ -882,6 +973,12 @@ const sendBookingConfirmationEmail = async (bookingId) => {
         payment_intent_id,
         voucher_code,
         voucher_status,
+        adults,
+        children,
+        infants,
+        adult_price,
+        child_price,
+        infant_price,
         services(service_name, location, service_description, service_type),
         packages(name, duration, includes, excludes, price)
       `,
@@ -1286,6 +1383,9 @@ app.get("/api/voucher/:code", async (req, res) => {
         amount,
         currency,
         payment_status,
+        adults,
+        children,
+        infants,
         services(service_name, location),
         packages(name)
       `,
@@ -1340,6 +1440,9 @@ app.get("/api/voucher/:code", async (req, res) => {
         package: packageInfo?.name || null,
         amount: formatMoney(booking.amount, booking.currency),
         paymentStatus: booking.payment_status,
+        adults: booking.adults || 1,
+        children: booking.children || 0,
+        infants: booking.infants || 0,
       },
       verifiedAt: booking.voucher_verified_at,
     };
@@ -1378,6 +1481,9 @@ app.post("/api/voucher/verify", async (req, res) => {
         amount,
         currency,
         user_id,
+        adults,
+        children,
+        infants,
         services(service_name, location),
         packages(name)
       `,
@@ -1472,6 +1578,9 @@ app.post("/api/voucher/verify", async (req, res) => {
         location: service?.location || "N/A",
         package: packageInfo?.name || null,
         amount: formatMoney(booking.amount, booking.currency),
+        adults: booking.adults || 1,
+        children: booking.children || 0,
+        infants: booking.infants || 0,
       },
       verifiedAt: new Date().toISOString(),
     });
@@ -1505,6 +1614,9 @@ app.get("/api/vouchers", async (req, res) => {
         payment_status,
         created_at,
         user_id,
+        adults,
+        children,
+        infants,
         services(service_name, location),
         packages(name)
       `,
@@ -1569,6 +1681,9 @@ app.get("/api/vouchers", async (req, res) => {
           amount: formatMoney(booking.amount, booking.currency),
           customer: userName || userEmail || "Unknown",
           customerEmail: userEmail,
+          adults: booking.adults || 1,
+          children: booking.children || 0,
+          infants: booking.infants || 0,
           verifiedAt: booking.voucher_verified_at,
           createdAt: booking.created_at,
         };
