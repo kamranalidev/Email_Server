@@ -37,7 +37,7 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 # Resend Email (https://resend.com)
 RESEND_API_KEY=re_...
 EMAIL_FROM=TravelGuru <noreply@travelguroo.com>
-ADMIN_NOTIFICATION_EMAIL=admin@travelguroo.com
+ADMIN_NOTIFICATION_EMAIL=travelgurootourism@gmail.com
 
 # Frontend URL
 FRONTEND_URL=https://travelguroo.com
@@ -119,88 +119,7 @@ POST /api/send-booking-confirmation
 Body: { "booking_id": 123 }
 ```
 
-Generates a voucher code (if not exists) and sends voucher email to customer + admin notification.
-
----
-
-## 🎫 Voucher System API
-
-### Lookup Voucher
-
-```
-GET /api/voucher/:code
-```
-
-Returns voucher status and booking details. Auto-expires if booking date has passed.
-
-**Response:**
-```json
-{
-  "valid": true,
-  "code": "TG-ABC12345",
-  "status": "active",
-  "booking": {
-    "id": 123,
-    "date": "2024-02-15",
-    "time": "10:00 AM",
-    "service": "Desert Safari",
-    "location": "Dubai",
-    "package": "Premium Package",
-    "amount": "AED 500.00",
-    "paymentStatus": "succeeded"
-  },
-  "verifiedAt": null
-}
-```
-
-### Verify/Redeem Voucher (Admin)
-
-```
-POST /api/voucher/verify
-Body: { "code": "TG-ABC12345", "admin_id": "optional-admin-uuid" }
-```
-
-Marks the voucher as used. Returns error if already used, expired, or cancelled.
-
-**Success Response:**
-```json
-{
-  "success": true,
-  "message": "Voucher verified successfully!",
-  "code": "TG-ABC12345",
-  "booking": { ... },
-  "verifiedAt": "2024-02-15T10:30:00.000Z"
-}
-```
-
-### List All Vouchers (Admin Dashboard)
-
-```
-GET /api/vouchers?status=active&date=2024-02-15&limit=50
-```
-
-**Query Parameters:**
-- `status` - Filter by status: `active`, `used`, `expired`, `cancelled`
-- `date` - Filter by booking date
-- `limit` - Max results (default: 50)
-
-### Resend Voucher Email
-
-```
-POST /api/voucher/resend
-Body: { "code": "TG-ABC12345" }  // OR { "booking_id": 123 }
-```
-
-Resends the voucher email to the customer.
-
-### Cancel Voucher (Admin)
-
-```
-POST /api/voucher/cancel
-Body: { "code": "TG-ABC12345", "reason": "Customer requested refund", "admin_id": "optional" }
-```
-
-Cancels an active voucher. Cannot cancel already used vouchers.
+Sends booking confirmation email to customer + admin notification.
 
 ---
 
