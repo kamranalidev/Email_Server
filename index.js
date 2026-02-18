@@ -144,11 +144,14 @@ const generateBookingConfirmationEmailHTML = (
   service,
   packageInfo,
   userName,
+  userEmail,
+  userPhone,
 ) => {
   const serviceName =
     service?.service_name || service?.name || "Your Experience";
   const location = service?.location || "";
   const packageName = packageInfo?.name || "";
+  const packageDuration = packageInfo?.duration || "";
   const amount = formatMoney(booking.amount, booking.currency);
   const bookingTime = booking.departure_arrival_time || "";
   const greeting = userName ? escapeHtml(userName) : "Valued Customer";
@@ -159,14 +162,38 @@ const generateBookingConfirmationEmailHTML = (
   const children = booking.children || 0;
   const infants = booking.infants || 0;
   const totalGuests = adults + children + infants;
-  const adultPrice = booking.adult_price
-    ? formatMoney(booking.adult_price * 100, booking.currency)
+  
+  // Price calculations
+  const adultPricePerPerson = booking.adult_price || 0;
+  const childPricePerPerson = booking.child_price || 0;
+  const infantPricePerPerson = booking.infant_price || 0;
+  
+  const adultTotal = adultPricePerPerson * adults;
+  const childTotal = childPricePerPerson * children;
+  const infantTotal = infantPricePerPerson * infants;
+  const transferPriceValue = booking.transfer_price || 0;
+  
+  const adultPriceFormatted = adultPricePerPerson > 0
+    ? formatMoney(adultPricePerPerson * 100, booking.currency)
     : null;
-  const childPrice = booking.child_price
-    ? formatMoney(booking.child_price * 100, booking.currency)
+  const childPriceFormatted = childPricePerPerson > 0
+    ? formatMoney(childPricePerPerson * 100, booking.currency)
     : null;
-  const infantPrice = booking.infant_price
-    ? formatMoney(booking.infant_price * 100, booking.currency)
+  const infantPriceFormatted = infantPricePerPerson > 0
+    ? formatMoney(infantPricePerPerson * 100, booking.currency)
+    : null;
+  
+  const adultTotalFormatted = adultTotal > 0
+    ? formatMoney(adultTotal * 100, booking.currency)
+    : null;
+  const childTotalFormatted = childTotal > 0
+    ? formatMoney(childTotal * 100, booking.currency)
+    : null;
+  const infantTotalFormatted = infantTotal > 0
+    ? formatMoney(infantTotal * 100, booking.currency)
+    : null;
+  const transferPriceFormatted = transferPriceValue > 0
+    ? formatMoney(transferPriceValue * 100, booking.currency)
     : null;
 
   // Sub-package information
@@ -178,13 +205,15 @@ const generateBookingConfirmationEmailHTML = (
 
   // Transfer information
   const transferType = booking.transfer_type || "";
-  const transferPrice = booking.transfer_price
-    ? formatMoney(booking.transfer_price * 100, booking.currency)
-    : "";
-
+  
   // Booking address
   const bookingAddress = booking.address || "";
   const bookingType = booking.type || "";
+  
+  // Payment reference
+  const paymentRef = booking.payment_intent_id
+    ? booking.payment_intent_id.slice(-8).toUpperCase()
+    : "";
 
   return `
 <!DOCTYPE html>
@@ -224,6 +253,20 @@ const generateBookingConfirmationEmailHTML = (
             </td>
           </tr>
           
+          <!-- Booking Reference Banner -->
+          <tr>
+            <td style="padding: 0 24px 16px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #FF621F 0%, #ff8533 100%); border-radius: 12px;">
+                <tr>
+                  <td style="padding: 16px 20px; text-align: center;">
+                    <p style="color: rgba(255,255,255,0.9); margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Booking Reference</p>
+                    <p style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 2px;">#${booking.id}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
           <!-- Booking Details Card -->
           <tr>
             <td style="padding: 0 24px 24px;">
@@ -251,7 +294,7 @@ const generateBookingConfirmationEmailHTML = (
                       <tr>
                         <td style="padding: 12px 0;">
                           <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Package</p>
-                          <p style="color: #1a1a1a; margin: 0; font-size: 15px; font-weight: 600;">📦 ${escapeHtml(packageName)}</p>
+                          <p style="color: #1a1a1a; margin: 0; font-size: 15px; font-weight: 600;">📦 ${escapeHtml(packageName)}${packageDuration ? ` (${escapeHtml(packageDuration)})` : ""}</p>
                         </td>
                       </tr>
                       `
@@ -286,10 +329,10 @@ const generateBookingConfirmationEmailHTML = (
                       ${
                         bookingAddress
                           ? `
-                      <!-- Address -->
+                      <!-- Pickup Address -->
                       <tr>
                         <td style="padding: 12px 0;">
-                          <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Address</p>
+                          <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Pickup Address</p>
                           <p style="color: #1a1a1a; margin: 0; font-size: 15px;">🏠 ${escapeHtml(bookingAddress)}</p>
                         </td>
                       </tr>
@@ -302,8 +345,8 @@ const generateBookingConfirmationEmailHTML = (
                       <!-- Transfer -->
                       <tr>
                         <td style="padding: 12px 0;">
-                          <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Transfer</p>
-                          <p style="color: #1a1a1a; margin: 0; font-size: 15px; font-weight: 600;">🚗 ${transferType === "round_trip" ? "Round Trip" : "One Way"}${transferPrice ? ` - ${transferPrice}` : ""}</p>
+                          <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Transfer Service</p>
+                          <p style="color: #1a1a1a; margin: 0; font-size: 15px; font-weight: 600;">🚗 ${transferType === "round_trip" ? "Round Trip Transfer" : "One Way Transfer"}${transferPriceFormatted ? ` - ${transferPriceFormatted}` : ""}</p>
                         </td>
                       </tr>
                       `
@@ -332,88 +375,86 @@ const generateBookingConfirmationEmailHTML = (
                           </table>
                         </td>
                       </tr>
-                      <!-- Participants Breakdown -->
                       ${
-                        totalGuests > 1 || children > 0 || infants > 0
+                        bookingType
                           ? `
+                      <!-- Booking Type -->
                       <tr>
                         <td style="padding: 12px 0;">
-                          <p style="color: #888; margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Guests</p>
-                          <table width="100%" cellpadding="0" cellspacing="0" style="background: #f8f9fa; border-radius: 8px; padding: 12px;">
-                            <tr>
-                              <td style="padding: 8px 12px;">
-                                <table width="100%" cellpadding="0" cellspacing="0">
-                                  ${
-                                    adults > 0
-                                      ? `
-                                  <tr>
-                                    <td style="color: #1a1a1a; font-size: 14px; padding: 4px 0;">👤 Adults</td>
-                                    <td style="color: #666; font-size: 14px; text-align: center; padding: 4px 0;">${adults}</td>
-                                    <td style="color: #FF621F; font-size: 14px; text-align: right; padding: 4px 0; font-weight: 600;">${adultPrice ? `${adultPrice}/person` : ""}</td>
-                                  </tr>
-                                  `
-                                      : ""
-                                  }
-                                  ${
-                                    children > 0
-                                      ? `
-                                  <tr>
-                                    <td style="color: #1a1a1a; font-size: 14px; padding: 4px 0;">👦 Children (3-12)</td>
-                                    <td style="color: #666; font-size: 14px; text-align: center; padding: 4px 0;">${children}</td>
-                                    <td style="color: #FF621F; font-size: 14px; text-align: right; padding: 4px 0; font-weight: 600;">${childPrice ? `${childPrice}/child` : ""}</td>
-                                  </tr>
-                                  `
-                                      : ""
-                                  }
-                                  ${
-                                    infants > 0
-                                      ? `
-                                  <tr>
-                                    <td style="color: #1a1a1a; font-size: 14px; padding: 4px 0;">👶 Infants (0-2)</td>
-                                    <td style="color: #666; font-size: 14px; text-align: center; padding: 4px 0;">${infants}</td>
-                                    <td style="color: #4CAF50; font-size: 14px; text-align: right; padding: 4px 0; font-weight: 600;">${infantPrice && booking.infant_price > 0 ? `${infantPrice}/infant` : "FREE"}</td>
-                                  </tr>
-                                  `
-                                      : ""
-                                  }
-                                  <tr>
-                                    <td colspan="3" style="border-top: 1px dashed #ddd; padding-top: 8px; margin-top: 8px;">
-                                      <p style="color: #1a1a1a; font-size: 14px; font-weight: 700; margin: 4px 0;">Total Guests: ${totalGuests}</p>
-                                    </td>
-                                  </tr>
-                                </table>
-                              </td>
-                            </tr>
-                          </table>
+                          <p style="color: #888; margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Booking Type</p>
+                          <p style="color: #1a1a1a; margin: 0; font-size: 15px;">${escapeHtml(bookingType)}</p>
                         </td>
                       </tr>
                       `
                           : ""
                       }
-                      <!-- Divider -->
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Guest Details Section -->
+          <tr>
+            <td style="padding: 0 24px 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #e3f2fd 0%, #ffffff 100%); border-radius: 16px; border: 1px solid #bbdefb;">
+                <tr>
+                  <td style="padding: 24px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
                       <tr>
-                        <td style="padding: 16px 0;">
-                          <hr style="border: none; border-top: 2px dashed #e0e0e0; margin: 0;">
+                        <td style="padding-bottom: 16px; border-bottom: 2px solid #2196F3;">
+                          <p style="color: #1565c0; margin: 0; font-size: 16px; font-weight: 700;">👥 Guest Details</p>
                         </td>
                       </tr>
-                      <!-- Amount Paid -->
                       <tr>
-                        <td>
-                          <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #fff8f5 0%, #fff 100%); border-radius: 12px; padding: 16px;">
+                        <td style="padding-top: 16px;">
+                          <table width="100%" cellpadding="8" cellspacing="0" style="background: #ffffff; border-radius: 8px;">
+                            <tr style="background-color: #f5f5f5;">
+                              <td style="font-weight: 600; color: #333; font-size: 13px; padding: 12px;">Guest Type</td>
+                              <td style="font-weight: 600; color: #333; font-size: 13px; text-align: center; padding: 12px;">Count</td>
+                              <td style="font-weight: 600; color: #333; font-size: 13px; text-align: right; padding: 12px;">Per Person</td>
+                              <td style="font-weight: 600; color: #333; font-size: 13px; text-align: right; padding: 12px;">Subtotal</td>
+                            </tr>
+                            ${
+                              adults > 0
+                                ? `
                             <tr>
-                              <td style="padding: 16px;">
-                                <table width="100%">
-                                  <tr>
-                                    <td>
-                                      <p style="color: #666; margin: 0; font-size: 13px;">Total Amount Paid</p>
-                                      <p style="color: #4CAF50; margin: 4px 0 0; font-size: 12px; font-weight: 500;">✓ Payment Successful</p>
-                                    </td>
-                                    <td style="text-align: right;">
-                                      <p style="color: #FF621F; margin: 0; font-size: 28px; font-weight: 800;">${amount}</p>
-                                    </td>
-                                  </tr>
-                                </table>
-                              </td>
+                              <td style="color: #1a1a1a; font-size: 14px; padding: 12px; border-bottom: 1px solid #eee;">👤 Adults</td>
+                              <td style="color: #666; font-size: 14px; text-align: center; padding: 12px; border-bottom: 1px solid #eee;">${adults}</td>
+                              <td style="color: #666; font-size: 14px; text-align: right; padding: 12px; border-bottom: 1px solid #eee;">${adultPriceFormatted || "-"}</td>
+                              <td style="color: #FF621F; font-size: 14px; text-align: right; padding: 12px; font-weight: 600; border-bottom: 1px solid #eee;">${adultTotalFormatted || "-"}</td>
+                            </tr>
+                            `
+                                : ""
+                            }
+                            ${
+                              children > 0
+                                ? `
+                            <tr>
+                              <td style="color: #1a1a1a; font-size: 14px; padding: 12px; border-bottom: 1px solid #eee;">👦 Children (3-12 yrs)</td>
+                              <td style="color: #666; font-size: 14px; text-align: center; padding: 12px; border-bottom: 1px solid #eee;">${children}</td>
+                              <td style="color: #666; font-size: 14px; text-align: right; padding: 12px; border-bottom: 1px solid #eee;">${childPriceFormatted || "-"}</td>
+                              <td style="color: #FF621F; font-size: 14px; text-align: right; padding: 12px; font-weight: 600; border-bottom: 1px solid #eee;">${childTotalFormatted || "-"}</td>
+                            </tr>
+                            `
+                                : ""
+                            }
+                            ${
+                              infants > 0
+                                ? `
+                            <tr>
+                              <td style="color: #1a1a1a; font-size: 14px; padding: 12px; border-bottom: 1px solid #eee;">👶 Infants (0-2 yrs)</td>
+                              <td style="color: #666; font-size: 14px; text-align: center; padding: 12px; border-bottom: 1px solid #eee;">${infants}</td>
+                              <td style="color: #666; font-size: 14px; text-align: right; padding: 12px; border-bottom: 1px solid #eee;">${infantPriceFormatted || "FREE"}</td>
+                              <td style="color: #4CAF50; font-size: 14px; text-align: right; padding: 12px; font-weight: 600; border-bottom: 1px solid #eee;">${infantPricePerPerson > 0 ? infantTotalFormatted : "FREE"}</td>
+                            </tr>
+                            `
+                                : ""
+                            }
+                            <tr style="background-color: #f8f9fa;">
+                              <td colspan="2" style="color: #1a1a1a; font-size: 14px; font-weight: 700; padding: 12px;">Total Guests</td>
+                              <td colspan="2" style="color: #1a1a1a; font-size: 14px; font-weight: 700; text-align: right; padding: 12px;">${totalGuests} ${totalGuests === 1 ? "person" : "people"}</td>
                             </tr>
                           </table>
                         </td>
@@ -422,6 +463,99 @@ const generateBookingConfirmationEmailHTML = (
                   </td>
                 </tr>
               </table>
+            </td>
+          </tr>
+          
+          <!-- Price Breakdown Section -->
+          <tr>
+            <td style="padding: 0 24px 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #e8f5e9 0%, #ffffff 100%); border-radius: 16px; border: 1px solid #c8e6c9;">
+                <tr>
+                  <td style="padding: 24px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding-bottom: 16px; border-bottom: 2px solid #4CAF50;">
+                          <p style="color: #2e7d32; margin: 0; font-size: 16px; font-weight: 700;">💰 Payment Summary</p>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top: 16px;">
+                          <table width="100%" cellpadding="8" cellspacing="0">
+                            ${
+                              adultTotal > 0
+                                ? `
+                            <tr>
+                              <td style="color: #333; font-size: 14px; padding: 8px 0;">Adults (${adults} × ${adultPriceFormatted})</td>
+                              <td style="color: #333; font-size: 14px; text-align: right; padding: 8px 0;">${adultTotalFormatted}</td>
+                            </tr>
+                            `
+                                : ""
+                            }
+                            ${
+                              childTotal > 0
+                                ? `
+                            <tr>
+                              <td style="color: #333; font-size: 14px; padding: 8px 0;">Children (${children} × ${childPriceFormatted})</td>
+                              <td style="color: #333; font-size: 14px; text-align: right; padding: 8px 0;">${childTotalFormatted}</td>
+                            </tr>
+                            `
+                                : ""
+                            }
+                            ${
+                              infants > 0
+                                ? `
+                            <tr>
+                              <td style="color: #333; font-size: 14px; padding: 8px 0;">Infants (${infants})</td>
+                              <td style="color: #4CAF50; font-size: 14px; text-align: right; padding: 8px 0;">${infantPricePerPerson > 0 ? infantTotalFormatted : "FREE"}</td>
+                            </tr>
+                            `
+                                : ""
+                            }
+                            ${
+                              transferPriceValue > 0
+                                ? `
+                            <tr>
+                              <td style="color: #333; font-size: 14px; padding: 8px 0;">🚗 Transfer (${transferType === "round_trip" ? "Round Trip" : "One Way"})</td>
+                              <td style="color: #333; font-size: 14px; text-align: right; padding: 8px 0;">${transferPriceFormatted}</td>
+                            </tr>
+                            `
+                                : ""
+                            }
+                            <tr>
+                              <td colspan="2" style="padding: 12px 0;">
+                                <hr style="border: none; border-top: 2px dashed #c8e6c9; margin: 0;">
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="color: #2e7d32; font-size: 18px; font-weight: 700; padding: 8px 0;">Total Amount Paid</td>
+                              <td style="color: #2e7d32; font-size: 24px; font-weight: 800; text-align: right; padding: 8px 0;">${amount}</td>
+                            </tr>
+                            ${
+                              paymentRef
+                                ? `
+                            <tr>
+                              <td style="color: #888; font-size: 12px; padding: 4px 0;">Payment Reference</td>
+                              <td style="color: #888; font-size: 12px; text-align: right; padding: 4px 0; font-family: monospace;">${paymentRef}</td>
+                            </tr>
+                            `
+                                : ""
+                            }
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Payment Status Badge -->
+          <tr>
+            <td style="padding: 0 24px 24px; text-align: center;">
+              <span style="display: inline-block; background: linear-gradient(135deg, #4CAF50 0%, #66BB6A 100%); color: white; padding: 12px 32px; border-radius: 25px; font-size: 14px; font-weight: 600; box-shadow: 0 4px 15px rgba(76,175,80,0.3);">
+                ✓ Payment Successful
+              </span>
             </td>
           </tr>
           
@@ -440,10 +574,13 @@ const generateBookingConfirmationEmailHTML = (
                         <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• Bring a <strong>valid ID or passport</strong> for verification</td>
                       </tr>
                       <tr>
-                        <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• Present your <strong>booking confirmation</strong> at the entrance</td>
+                        <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• Present this <strong>booking confirmation</strong> at the entrance</td>
                       </tr>
                       <tr>
                         <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• This booking is valid <strong>only for the date</strong> shown above</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 4px 0; color: #5d4037; font-size: 13px;">• For changes, contact us at least <strong>24 hours in advance</strong></td>
                       </tr>
                     </table>
                   </td>
@@ -452,15 +589,35 @@ const generateBookingConfirmationEmailHTML = (
             </td>
           </tr>
           
-          <!-- Admin Notification Info -->
+          <!-- CTA Button -->
+          <tr>
+            <td style="padding: 0 24px 24px; text-align: center;">
+              <a href="${process.env.FRONTEND_URL || "https://travelguroo.com"}/bookings" 
+                 style="display: inline-block; background: linear-gradient(135deg, #FF621F 0%, #ff8533 100%); color: white; padding: 16px 48px; border-radius: 50px; text-decoration: none; font-size: 16px; font-weight: 600; box-shadow: 0 4px 20px rgba(255,98,31,0.3);">
+                View My Bookings
+              </a>
+            </td>
+          </tr>
+          
+          <!-- Contact Section -->
           <tr>
             <td style="padding: 0 24px 24px;">
-              <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196F3;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; border-radius: 12px;">
                 <tr>
-                  <td style="padding: 16px;">
-                    <p style="color: #1565c0; margin: 0; font-size: 13px;">
-                      ℹ️ Our team has been notified about your booking and will ensure everything is ready for your experience.
-                    </p>
+                  <td style="padding: 20px; text-align: center;">
+                    <p style="color: #666; margin: 0 0 12px; font-size: 14px; font-weight: 600;">Need Help? We're Here for You!</p>
+                    <table width="100%" cellpadding="8" cellspacing="0">
+                      <tr>
+                        <td style="text-align: center;">
+                          <a href="mailto:support@travelguroo.com" style="color: #FF621F; text-decoration: none; font-size: 14px;">📧 support@travelguroo.com</a>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="text-align: center;">
+                          <a href="https://wa.me/971505765498" style="color: #25d366; text-decoration: none; font-size: 14px;">💬 WhatsApp Support</a>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
               </table>
@@ -470,7 +627,6 @@ const generateBookingConfirmationEmailHTML = (
           <!-- Footer -->
           <tr>
             <td style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); padding: 30px; text-align: center;">
-              <p style="color: #888; margin: 0 0 12px; font-size: 13px;">Booking Reference: <span style="color: #FF621F; font-weight: 600;">#${booking.id}</span></p>
               <p style="color: rgba(255,255,255,0.9); margin: 0 0 12px; font-size: 14px;">
                 Questions? Contact us at <a href="mailto:support@travelguroo.com" style="color: #FF621F; text-decoration: none; font-weight: 600;">support@travelguroo.com</a>
               </p>
@@ -511,10 +667,12 @@ const generateAdminNotificationHTML = (
   packageInfo,
   userName,
   userEmail,
+  userPhone,
 ) => {
   const serviceName = service?.service_name || service?.name || "Service";
   const location = service?.location || "N/A";
   const packageName = packageInfo?.name || "N/A";
+  const packageDuration = packageInfo?.duration || "";
   const amount = formatMoney(booking.amount, booking.currency);
   const bookingTime = booking.departure_arrival_time || "Not specified";
 
@@ -533,218 +691,428 @@ const generateAdminNotificationHTML = (
 
   // Transfer information
   const transferType = booking.transfer_type || "";
-  const transferPrice = booking.transfer_price
-    ? formatMoney(booking.transfer_price * 100, booking.currency)
+  const transferPriceValue = booking.transfer_price || 0;
+  const transferPriceFormatted = transferPriceValue > 0
+    ? formatMoney(transferPriceValue * 100, booking.currency)
     : "";
 
   // Booking address
   const bookingAddress = booking.address || "";
   const bookingType = booking.type || "";
 
-  // Price breakdown
-  const adultPrice = booking.adult_price
-    ? formatMoney(booking.adult_price * 100, booking.currency)
+  // Price breakdown with totals
+  const adultPricePerPerson = booking.adult_price || 0;
+  const childPricePerPerson = booking.child_price || 0;
+  const infantPricePerPerson = booking.infant_price || 0;
+  
+  const adultTotal = adultPricePerPerson * adults;
+  const childTotal = childPricePerPerson * children;
+  const infantTotal = infantPricePerPerson * infants;
+  
+  const adultPriceFormatted = adultPricePerPerson > 0
+    ? formatMoney(adultPricePerPerson * 100, booking.currency)
     : null;
-  const childPrice = booking.child_price
-    ? formatMoney(booking.child_price * 100, booking.currency)
+  const childPriceFormatted = childPricePerPerson > 0
+    ? formatMoney(childPricePerPerson * 100, booking.currency)
     : null;
-  const infantPrice = booking.infant_price
-    ? formatMoney(booking.infant_price * 100, booking.currency)
+  const infantPriceFormatted = infantPricePerPerson > 0
+    ? formatMoney(infantPricePerPerson * 100, booking.currency)
     : null;
-
-  // Build guests row HTML
-  let guestsHtml = `👤 ${adults} Adult${adults !== 1 ? "s" : ""}`;
-  if (children > 0)
-    guestsHtml += ` · 👦 ${children} Child${children !== 1 ? "ren" : ""}`;
-  if (infants > 0)
-    guestsHtml += ` · 👶 ${infants} Infant${infants !== 1 ? "s" : ""}`;
-  if (totalGuests > 1) guestsHtml += ` (${totalGuests} total)`;
+    
+  const adultTotalFormatted = adultTotal > 0
+    ? formatMoney(adultTotal * 100, booking.currency)
+    : null;
+  const childTotalFormatted = childTotal > 0
+    ? formatMoney(childTotal * 100, booking.currency)
+    : null;
+  const infantTotalFormatted = infantTotal > 0
+    ? formatMoney(infantTotal * 100, booking.currency)
+    : null;
+  
+  // Payment reference
+  const paymentRef = booking.payment_intent_id
+    ? booking.payment_intent_id.slice(-8).toUpperCase()
+    : "";
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>New Booking Alert - TravelGuru</title>
 </head>
 <body style="margin: 0; padding: 20px; font-family: Arial, sans-serif; background-color: #f5f5f5;">
-  <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+  <table width="650" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; margin: 0 auto; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
     
     <!-- Header -->
     <tr>
-      <td style="background: linear-gradient(135deg, #FF621F 0%, #ff8533 100%); padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 22px;">🔔 New Booking Alert</h1>
-        <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0; font-size: 14px;">A new booking has been placed!</p>
-      </td>
-    </tr>
-    
-    <!-- Content -->
-    <tr>
-      <td style="padding: 24px;">
-        
-        <!-- Customer Info -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f0f7ff; border-radius: 8px; margin-bottom: 16px;">
+      <td style="background: linear-gradient(135deg, #FF621F 0%, #ff8533 100%); padding: 24px 30px; border-radius: 12px 12px 0 0;">
+        <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
-            <td style="padding: 16px;">
-              <p style="color: #1a1a1a; margin: 0 0 8px; font-size: 14px; font-weight: 700;">👤 Customer Information</p>
-              <p style="color: #333; margin: 0 0 4px; font-size: 14px;"><strong>Name:</strong> ${escapeHtml(userName || "N/A")}</p>
-              <p style="color: #333; margin: 0; font-size: 14px;"><strong>Email:</strong> <a href="mailto:${escapeHtml(userEmail)}" style="color: #FF621F;">${escapeHtml(userEmail)}</a></p>
+            <td>
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">🔔 New Booking Alert</h1>
+              <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0; font-size: 14px;">A new booking has been placed and paid!</p>
+            </td>
+            <td style="text-align: right;">
+              <div style="background: rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 16px; display: inline-block;">
+                <p style="color: #fff; margin: 0; font-size: 12px;">Booking ID</p>
+                <p style="color: #fff; margin: 4px 0 0; font-size: 20px; font-weight: 800;">#${booking.id}</p>
+              </div>
             </td>
           </tr>
         </table>
-        
-        <!-- Booking Summary Table -->
-        <table width="100%" cellpadding="10" cellspacing="0" style="border: 1px solid #e0e0e0; border-radius: 8px; border-collapse: separate;">
-          <tr style="background-color: #f8f9fa;">
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333; width: 40%;">Booking ID</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #FF621F; font-weight: 700;">#${booking.id}</td>
-          </tr>
+      </td>
+    </tr>
+    
+    <!-- Customer Information Section -->
+    <tr>
+      <td style="padding: 24px 30px 0;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #e3f2fd 0%, #f5f5f5 100%); border-radius: 12px; border: 1px solid #bbdefb;">
           <tr>
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Service</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">${escapeHtml(serviceName)}</td>
-          </tr>
-          ${
-            packageName && packageName !== "N/A"
-              ? `
-          <tr style="background-color: #f8f9fa;">
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Package</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">📦 ${escapeHtml(packageName)}</td>
-          </tr>
-          `
-              : ""
-          }
-          ${
-            subPackageName
-              ? `
-          <tr>
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Selected Option</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">🎯 ${escapeHtml(subPackageName)}${subPackagePrice ? ` - ${subPackagePrice}` : ""}</td>
-          </tr>
-          `
-              : ""
-          }
-          <tr style="background-color: #f8f9fa;">
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Location</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">📍 ${escapeHtml(location)}</td>
-          </tr>
-          ${
-            bookingAddress
-              ? `
-          <tr>
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Address</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">🏠 ${escapeHtml(bookingAddress)}</td>
-          </tr>
-          `
-              : ""
-          }
-          <tr style="background-color: #f8f9fa;">
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Date</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">📅 ${escapeHtml(booking.booking_date)}</td>
-          </tr>
-          <tr>
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Time</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">🕐 ${escapeHtml(bookingTime)}</td>
-          </tr>
-          ${
-            bookingType
-              ? `
-          <tr style="background-color: #f8f9fa;">
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Booking Type</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">${escapeHtml(bookingType)}</td>
-          </tr>
-          `
-              : ""
-          }
-          ${
-            transferType && transferType !== "none"
-              ? `
-          <tr>
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Transfer</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">🚗 ${transferType === "round_trip" ? "Round Trip" : "One Way"}${transferPrice ? ` - ${transferPrice}` : ""}</td>
-          </tr>
-          `
-              : ""
-          }
-          <tr style="background-color: #f8f9fa;">
-            <td style="border-bottom: 1px solid #e0e0e0; font-weight: 600; color: #333;">Guests</td>
-            <td style="border-bottom: 1px solid #e0e0e0; color: #1a1a1a;">${guestsHtml}</td>
+            <td style="padding: 20px;">
+              <p style="color: #1565c0; margin: 0 0 16px; font-size: 16px; font-weight: 700; border-bottom: 2px solid #2196F3; padding-bottom: 8px;">👤 Customer Information</p>
+              <table width="100%" cellpadding="8" cellspacing="0">
+                <tr>
+                  <td style="color: #666; font-size: 13px; width: 120px;">Full Name:</td>
+                  <td style="color: #1a1a1a; font-size: 14px; font-weight: 600;">${escapeHtml(userName || "N/A")}</td>
+                </tr>
+                <tr>
+                  <td style="color: #666; font-size: 13px;">Email:</td>
+                  <td style="color: #1a1a1a; font-size: 14px;"><a href="mailto:${escapeHtml(userEmail)}" style="color: #FF621F; text-decoration: none; font-weight: 600;">${escapeHtml(userEmail)}</a></td>
+                </tr>
+                ${
+                  userPhone
+                    ? `
+                <tr>
+                  <td style="color: #666; font-size: 13px;">Phone:</td>
+                  <td style="color: #1a1a1a; font-size: 14px;"><a href="tel:${escapeHtml(userPhone)}" style="color: #FF621F; text-decoration: none; font-weight: 600;">${escapeHtml(userPhone)}</a></td>
+                </tr>
+                `
+                    : ""
+                }
+              </table>
+            </td>
           </tr>
         </table>
-        
-        <!-- Price Breakdown -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #e8f5e9 0%, #fff 100%); border-radius: 8px; margin-top: 16px; border: 1px solid #c8e6c9;">
+      </td>
+    </tr>
+    
+    <!-- Booking Details Section -->
+    <tr>
+      <td style="padding: 24px 30px 0;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: #ffffff; border-radius: 12px; border: 1px solid #e0e0e0;">
           <tr>
-            <td style="padding: 16px;">
-              <p style="color: #2e7d32; margin: 0 0 12px; font-size: 14px; font-weight: 700;">💰 Payment Summary</p>
-              <table width="100%" cellpadding="4" cellspacing="0">
+            <td style="padding: 20px;">
+              <p style="color: #1a1a1a; margin: 0 0 16px; font-size: 16px; font-weight: 700; border-bottom: 2px solid #FF621F; padding-bottom: 8px;">📋 Booking Details</p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%">
+                      <tr>
+                        <td style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Service</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #1a1a1a; font-size: 16px; font-weight: 700; padding-top: 4px;">${escapeHtml(serviceName)}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
                 ${
-                  adultPrice && adults > 0
+                  packageName && packageName !== "N/A"
                     ? `
                 <tr>
-                  <td style="color: #333; font-size: 13px;">Adults (${adults})</td>
-                  <td style="color: #333; font-size: 13px; text-align: right;">${adultPrice}/person</td>
+                  <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%">
+                      <tr>
+                        <td style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Package</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #1a1a1a; font-size: 14px; font-weight: 600; padding-top: 4px;">📦 ${escapeHtml(packageName)}${packageDuration ? ` (${escapeHtml(packageDuration)})` : ""}</td>
+                      </tr>
+                    </table>
+                  </td>
                 </tr>
                 `
                     : ""
                 }
                 ${
-                  childPrice && children > 0
+                  subPackageName
                     ? `
                 <tr>
-                  <td style="color: #333; font-size: 13px;">Children (${children})</td>
-                  <td style="color: #333; font-size: 13px; text-align: right;">${childPrice}/child</td>
+                  <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%">
+                      <tr>
+                        <td style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Selected Option</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #1a1a1a; font-size: 14px; font-weight: 600; padding-top: 4px;">🎯 ${escapeHtml(subPackageName)}${subPackagePrice ? ` - ${subPackagePrice}` : ""}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                `
+                    : ""
+                }
+                <tr>
+                  <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%">
+                      <tr>
+                        <td width="50%">
+                          <p style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">Date</p>
+                          <p style="color: #1a1a1a; font-size: 14px; font-weight: 600; margin: 4px 0 0;">📅 ${escapeHtml(booking.booking_date)}</p>
+                        </td>
+                        <td width="50%">
+                          <p style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">Time</p>
+                          <p style="color: #1a1a1a; font-size: 14px; font-weight: 600; margin: 4px 0 0;">🕐 ${escapeHtml(bookingTime)}</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%">
+                      <tr>
+                        <td style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Location</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #1a1a1a; font-size: 14px; padding-top: 4px;">📍 ${escapeHtml(location)}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                ${
+                  bookingAddress
+                    ? `
+                <tr>
+                  <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%">
+                      <tr>
+                        <td style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Pickup Address</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #1a1a1a; font-size: 14px; padding-top: 4px;">🏠 ${escapeHtml(bookingAddress)}</td>
+                      </tr>
+                    </table>
+                  </td>
                 </tr>
                 `
                     : ""
                 }
                 ${
-                  infantPrice !== null && infants > 0
+                  bookingType
                     ? `
                 <tr>
-                  <td style="color: #333; font-size: 13px;">Infants (${infants})</td>
-                  <td style="color: #333; font-size: 13px; text-align: right;">${booking.infant_price > 0 ? `${infantPrice}/infant` : "FREE"}</td>
+                  <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%">
+                      <tr>
+                        <td style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Booking Type</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #1a1a1a; font-size: 14px; padding-top: 4px;">${escapeHtml(bookingType)}</td>
+                      </tr>
+                    </table>
+                  </td>
                 </tr>
                 `
                     : ""
                 }
                 ${
-                  transferType && transferType !== "none" && transferPrice
+                  transferType && transferType !== "none"
                     ? `
                 <tr>
-                  <td style="color: #333; font-size: 13px;">Transfer (${transferType === "round_trip" ? "Round Trip" : "One Way"})</td>
-                  <td style="color: #333; font-size: 13px; text-align: right;">${transferPrice}</td>
+                  <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%">
+                      <tr>
+                        <td style="color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Transfer Service</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #1a1a1a; font-size: 14px; font-weight: 600; padding-top: 4px;">🚗 ${transferType === "round_trip" ? "Round Trip Transfer" : "One Way Transfer"}${transferPriceFormatted ? ` - ${transferPriceFormatted}` : ""}</td>
+                      </tr>
+                    </table>
+                  </td>
                 </tr>
                 `
                     : ""
                 }
-                <tr>
-                  <td colspan="2" style="border-top: 1px dashed #c8e6c9; padding-top: 8px; margin-top: 8px;"></td>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    
+    <!-- Guest Breakdown Section -->
+    <tr>
+      <td style="padding: 24px 30px 0;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #fff3e0 0%, #ffffff 100%); border-radius: 12px; border: 1px solid #ffe0b2;">
+          <tr>
+            <td style="padding: 20px;">
+              <p style="color: #e65100; margin: 0 0 16px; font-size: 16px; font-weight: 700; border-bottom: 2px solid #FF9800; padding-bottom: 8px;">👥 Guest Breakdown</p>
+              <table width="100%" cellpadding="8" cellspacing="0" style="background: #ffffff; border-radius: 8px;">
+                <tr style="background-color: #f8f9fa;">
+                  <td style="font-weight: 600; color: #333; font-size: 12px; padding: 12px; text-transform: uppercase;">Guest Type</td>
+                  <td style="font-weight: 600; color: #333; font-size: 12px; text-align: center; padding: 12px; text-transform: uppercase;">Count</td>
+                  <td style="font-weight: 600; color: #333; font-size: 12px; text-align: right; padding: 12px; text-transform: uppercase;">Per Person</td>
+                  <td style="font-weight: 600; color: #333; font-size: 12px; text-align: right; padding: 12px; text-transform: uppercase;">Subtotal</td>
                 </tr>
+                ${
+                  adults > 0
+                    ? `
                 <tr>
-                  <td style="color: #2e7d32; font-size: 18px; font-weight: 700;">Total Paid</td>
-                  <td style="color: #2e7d32; font-size: 18px; font-weight: 700; text-align: right;">${amount}</td>
+                  <td style="color: #1a1a1a; font-size: 13px; padding: 12px; border-bottom: 1px solid #eee;">👤 Adults</td>
+                  <td style="color: #666; font-size: 13px; text-align: center; padding: 12px; border-bottom: 1px solid #eee; font-weight: 600;">${adults}</td>
+                  <td style="color: #666; font-size: 13px; text-align: right; padding: 12px; border-bottom: 1px solid #eee;">${adultPriceFormatted || "-"}</td>
+                  <td style="color: #FF621F; font-size: 13px; text-align: right; padding: 12px; font-weight: 700; border-bottom: 1px solid #eee;">${adultTotalFormatted || "-"}</td>
+                </tr>
+                `
+                    : ""
+                }
+                ${
+                  children > 0
+                    ? `
+                <tr>
+                  <td style="color: #1a1a1a; font-size: 13px; padding: 12px; border-bottom: 1px solid #eee;">👦 Children (3-12 yrs)</td>
+                  <td style="color: #666; font-size: 13px; text-align: center; padding: 12px; border-bottom: 1px solid #eee; font-weight: 600;">${children}</td>
+                  <td style="color: #666; font-size: 13px; text-align: right; padding: 12px; border-bottom: 1px solid #eee;">${childPriceFormatted || "-"}</td>
+                  <td style="color: #FF621F; font-size: 13px; text-align: right; padding: 12px; font-weight: 700; border-bottom: 1px solid #eee;">${childTotalFormatted || "-"}</td>
+                </tr>
+                `
+                    : ""
+                }
+                ${
+                  infants > 0
+                    ? `
+                <tr>
+                  <td style="color: #1a1a1a; font-size: 13px; padding: 12px; border-bottom: 1px solid #eee;">👶 Infants (0-2 yrs)</td>
+                  <td style="color: #666; font-size: 13px; text-align: center; padding: 12px; border-bottom: 1px solid #eee; font-weight: 600;">${infants}</td>
+                  <td style="color: #666; font-size: 13px; text-align: right; padding: 12px; border-bottom: 1px solid #eee;">${infantPriceFormatted || "FREE"}</td>
+                  <td style="color: #4CAF50; font-size: 13px; text-align: right; padding: 12px; font-weight: 700; border-bottom: 1px solid #eee;">${infantPricePerPerson > 0 ? infantTotalFormatted : "FREE"}</td>
+                </tr>
+                `
+                    : ""
+                }
+                <tr style="background-color: #fff8e1;">
+                  <td colspan="2" style="color: #1a1a1a; font-size: 14px; font-weight: 700; padding: 12px;">Total Guests</td>
+                  <td colspan="2" style="color: #e65100; font-size: 16px; font-weight: 700; text-align: right; padding: 12px;">${totalGuests} ${totalGuests === 1 ? "person" : "people"}</td>
                 </tr>
               </table>
             </td>
           </tr>
         </table>
-        
-        <!-- Payment Info -->
-        <p style="color: #666; margin: 16px 0 0; font-size: 12px;">
-          Payment Status: <span style="color: #4CAF50; font-weight: 600;">✓ ${escapeHtml(booking.payment_status || "succeeded")}</span><br>
-          ${booking.payment_intent_id ? `Payment Reference: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 4px;">${booking.payment_intent_id.slice(-8).toUpperCase()}</code>` : ""}
-        </p>
+      </td>
+    </tr>
+    
+    <!-- Payment Summary Section -->
+    <tr>
+      <td style="padding: 24px 30px 0;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #e8f5e9 0%, #ffffff 100%); border-radius: 12px; border: 1px solid #c8e6c9;">
+          <tr>
+            <td style="padding: 20px;">
+              <p style="color: #2e7d32; margin: 0 0 16px; font-size: 16px; font-weight: 700; border-bottom: 2px solid #4CAF50; padding-bottom: 8px;">💰 Payment Summary</p>
+              <table width="100%" cellpadding="8" cellspacing="0">
+                ${
+                  adultTotal > 0
+                    ? `
+                <tr>
+                  <td style="color: #333; font-size: 13px; padding: 8px 0;">Adults (${adults} × ${adultPriceFormatted})</td>
+                  <td style="color: #333; font-size: 13px; text-align: right; padding: 8px 0;">${adultTotalFormatted}</td>
+                </tr>
+                `
+                    : ""
+                }
+                ${
+                  childTotal > 0
+                    ? `
+                <tr>
+                  <td style="color: #333; font-size: 13px; padding: 8px 0;">Children (${children} × ${childPriceFormatted})</td>
+                  <td style="color: #333; font-size: 13px; text-align: right; padding: 8px 0;">${childTotalFormatted}</td>
+                </tr>
+                `
+                    : ""
+                }
+                ${
+                  infants > 0
+                    ? `
+                <tr>
+                  <td style="color: #333; font-size: 13px; padding: 8px 0;">Infants (${infants})</td>
+                  <td style="color: #4CAF50; font-size: 13px; text-align: right; padding: 8px 0;">${infantPricePerPerson > 0 ? infantTotalFormatted : "FREE"}</td>
+                </tr>
+                `
+                    : ""
+                }
+                ${
+                  transferPriceValue > 0
+                    ? `
+                <tr>
+                  <td style="color: #333; font-size: 13px; padding: 8px 0;">🚗 Transfer (${transferType === "round_trip" ? "Round Trip" : "One Way"})</td>
+                  <td style="color: #333; font-size: 13px; text-align: right; padding: 8px 0;">${transferPriceFormatted}</td>
+                </tr>
+                `
+                    : ""
+                }
+                <tr>
+                  <td colspan="2" style="padding: 12px 0;">
+                    <hr style="border: none; border-top: 2px dashed #c8e6c9; margin: 0;">
+                  </td>
+                </tr>
+                <tr>
+                  <td style="color: #2e7d32; font-size: 18px; font-weight: 700; padding: 8px 0;">Total Amount Paid</td>
+                  <td style="color: #2e7d32; font-size: 22px; font-weight: 800; text-align: right; padding: 8px 0;">${amount}</td>
+                </tr>
+              </table>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 16px; background: #f5f5f5; border-radius: 8px; padding: 12px;">
+                <tr>
+                  <td style="padding: 12px;">
+                    <p style="color: #666; margin: 0 0 8px; font-size: 12px;">
+                      <strong>Payment Status:</strong> <span style="color: #4CAF50; font-weight: 600;">✓ ${escapeHtml(booking.payment_status || "succeeded")}</span>
+                    </p>
+                    ${
+                      paymentRef
+                        ? `
+                    <p style="color: #666; margin: 0; font-size: 12px;">
+                      <strong>Payment Reference:</strong> <code style="background: #ffffff; padding: 2px 8px; border-radius: 4px; font-family: monospace;">${paymentRef}</code>
+                    </p>
+                    `
+                        : ""
+                    }
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    
+    <!-- Quick Actions -->
+    <tr>
+      <td style="padding: 24px 30px;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="text-align: center;">
+              <p style="color: #666; margin: 0 0 12px; font-size: 13px;">Quick Actions</p>
+              <a href="mailto:${escapeHtml(userEmail)}" style="display: inline-block; background: #FF621F; color: white; padding: 12px 24px; border-radius: 25px; text-decoration: none; font-size: 13px; font-weight: 600; margin: 0 8px;">📧 Email Customer</a>
+              ${
+                userPhone
+                  ? `<a href="https://wa.me/${userPhone.replace(/[^0-9]/g, "")}" style="display: inline-block; background: #25d366; color: white; padding: 12px 24px; border-radius: 25px; text-decoration: none; font-size: 13px; font-weight: 600; margin: 0 8px;">💬 WhatsApp</a>`
+                  : ""
+              }
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>
     
     <!-- Footer -->
     <tr>
-      <td style="background-color: #1a1a1a; padding: 20px; text-align: center; border-radius: 0 0 8px 8px;">
-        <p style="color: rgba(255,255,255,0.9); margin: 0 0 8px; font-size: 13px;">
-          TravelGuru Booking System
+      <td style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); padding: 24px 30px; text-align: center; border-radius: 0 0 12px 12px;">
+        <p style="color: rgba(255,255,255,0.9); margin: 0 0 8px; font-size: 14px; font-weight: 600;">
+          TravelGuru Admin Notification
         </p>
-        <p style="color: rgba(255,255,255,0.6); margin: 0; font-size: 11px;">
-          Received at ${new Date().toLocaleString("en-AE", { timeZone: "Asia/Dubai" })} (UAE Time)
+        <p style="color: rgba(255,255,255,0.6); margin: 0; font-size: 12px;">
+          Booking received at ${new Date().toLocaleString("en-AE", { timeZone: "Asia/Dubai" })} (UAE Time)
         </p>
       </td>
     </tr>
@@ -1155,8 +1523,9 @@ const sendBookingConfirmationEmail = async (bookingId) => {
     const userName =
       userData.user.user_metadata?.full_name ||
       userData.user.email.split("@")[0];
+    const userPhone = userData.user.user_metadata?.phone || userData.user.phone || "";
 
-    log.email(`User found:`, { email: userEmail, name: userName });
+    log.email(`User found:`, { email: userEmail, name: userName, phone: userPhone || "Not provided" });
 
     // Normalize service and package data
     const service = Array.isArray(booking.services)
@@ -1186,6 +1555,8 @@ const sendBookingConfirmationEmail = async (bookingId) => {
       service,
       packageInfo,
       userName,
+      userEmail,
+      userPhone,
     );
 
     log.email(`Sending booking confirmation email to ${userEmail}...`);
@@ -1232,6 +1603,7 @@ const sendBookingConfirmationEmail = async (bookingId) => {
         packageInfo,
         userName,
         userEmail,
+        userPhone,
       );
 
       const { error: adminEmailError } = await resend.emails.send({
